@@ -108,20 +108,17 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     setLoading(true);
     let url = `${API}?limit=200`;
     if (isStock) url = `${API}?limit=100&symbol=${view.symbol}`;
-    else if (!isExchange && view !== 'feed') url = `${API}?limit=200&category=${encodeURIComponent(view)}`;
     else if (isExchange) url = `${API}?limit=500`;
+    else if (view !== 'feed') url = `${API}?limit=200&category=${encodeURIComponent(view)}`;
 
     fetch(url).then(r => r.json()).then(d => {
       let data = d.data || [];
       if (!isStock && !isExchange) {
-        data = data.filter(a => {
-          const src = (a.source||'').toLowerCase();
-          const srcName = (a.tag_source_name||'').toLowerCase();
-          const agentSrc = (a.agent_source||'').toLowerCase();
-          const isNSE = src==='nse_announcements'||srcName==='nse india'||agentSrc==='nse'||src==='nasdaq news'||agentSrc==='f';
-          const bad = ['wrestlemania','wwe','cricket','ipl','bollywood','movie','film','celebrity','mba admission','jnu','college admission','recipe','fashion','beauty'];
-          return !isHindi(a.title) && !isNSE && !bad.some(k => (a.title||'').toLowerCase().includes(k));
-        });
+        const bad = ['wrestlemania','wwe','cricket','ipl','bollywood','celebrity'];
+        data = data.filter(a =>
+          !isHindi(a.title) &&
+          !bad.some(k => (a.title||'').toLowerCase().includes(k))
+        );
       }
       setArticles(data);
       setLoading(false);
@@ -137,7 +134,11 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
 
   const filteredExchange = isExchange ? articles.filter(a => {
     const sources = EXCHANGE_SOURCES[exchangeTab]||[];
-    return sources.some(s => (a.source||'').toLowerCase().includes(s)||(a.tag_source_name||'').toLowerCase().includes(s)||(a.agent_source||'').toLowerCase().includes(s));
+    return sources.some(s =>
+      (a.source||'').toLowerCase().includes(s) ||
+      (a.tag_source_name||'').toLowerCase().includes(s) ||
+      (a.agent_source||'').toLowerCase().includes(s)
+    );
   }) : [];
 
   const feedTitle = isStock ? view.symbol : isExchange ? 'World Exchange' : view === 'feed' ? 'Global Feed' : view;
