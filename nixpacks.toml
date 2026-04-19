@@ -1,0 +1,5 @@
+[phases.setup]
+nixPkgs = ["nodejs", "python311", "python311Packages.pip"]
+
+[start]
+cmd = "node backend/server.js & python3 agents/pipeline.py --loop --interval 2"
