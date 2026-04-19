@@ -99,8 +99,9 @@ def run(limit=300, fetch_online=False):
     for art in articles:
         title = art.get('title', '') or ''
         text  = art.get('full_text', '') or ''
+        description = art.get('description', '') or ''
         if not text:
-            text = title
+            text = description or title
         summary = ""
         if _GROQ_KEY:
             prompt = (
@@ -111,7 +112,11 @@ def run(limit=300, fetch_online=False):
             )
             summary = groq_call(prompt, max_tokens=100)
         if not summary:
-            summary = extractive_summary(text, title)
+            if text and text != title:
+                summary = extractive_summary(text, title)
+            else:
+                words = title.split()
+                summary = ' '.join(words[:MAX_WORDS])
         update_article(art['id'], {'summary_60w': summary})
         processed += 1
     print(f"  ✅ AgentP summarised {processed} articles\n")
