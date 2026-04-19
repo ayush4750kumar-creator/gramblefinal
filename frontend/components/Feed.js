@@ -96,8 +96,12 @@ export default function Feed({ user, view, setView }) {
                 <div style={{ fontSize:12, color:'#9ca3af' }}>Official NSE filing — no summary available</div>
               )}
 
-              {reason && (
-                <div style={{ fontSize:11, color:'#9ca3af', fontStyle:'italic' }}>{reason}</div>
+              {reason && s && (
+                <div style={{ fontSize:11, fontWeight:500, fontStyle:'italic',
+                  background:s.bg, color:s.color,
+                  padding:'4px 10px', borderRadius:6, marginTop:4, display:'inline-block' }}>
+                  {reason}
+                </div>
               )}
             </div>
           </div>
