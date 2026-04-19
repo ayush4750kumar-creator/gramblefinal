@@ -12,7 +12,6 @@ from datetime import datetime
 import requests, json, time
 
 SOURCES = [
-    ("MoneyControl Evening",      "https://www.moneycontrol.com/rss/marketreports.xml"),
     ("ET After Hours",            "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms"),
     ("LiveMint Evening",          "https://www.livemint.com/rss/markets"),
     ("Reuters Business Evening",  "https://feeds.bbci.co.uk/news/business/rss.xml"),

@@ -15,11 +15,8 @@ from db_utils import save_articles
 import requests
 
 SEARCH_SOURCES = [
-    ("MoneyControl", "https://www.moneycontrol.com/rss/latestnews.xml"),
     ("ET Markets",   "https://economictimes.indiatimes.com/markets/rssfeeds/1977021502.cms"),
     ("LiveMint",     "https://www.livemint.com/rss/markets"),
-    ("Business Standard", "https://www.business-standard.com/rss/markets-106.rss"),
-    ("Reuters Business",  "https://feeds.reuters.com/reuters/businessNews"),
 ]
 
 def search_yahoo_rss(query: str, symbol: str = "") -> list:
@@ -39,7 +36,6 @@ def search_yahoo_rss(query: str, symbol: str = "") -> list:
         tickers.append((found_sym, found_sym + ".NS"))
 
     for sym, ticker in tickers[:3]:
-        url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
         entries = fetch_rss(url, f"Yahoo/{sym}", timeout=8)
         for e in entries[:15]:
             pub = parse_date(e)

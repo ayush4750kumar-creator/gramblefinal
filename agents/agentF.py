@@ -16,12 +16,9 @@ SOURCES = [
     ("WSJ Markets",        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",     "Wall Street Journal"),
     ("WSJ Economy",        "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",   "Wall Street Journal"),
     ("Financial Times",    "https://www.ft.com/rss/home",                        "Financial Times"),
-    ("Barron's",           "https://www.barrons.com/rss/RSSMarketsMain.xml",     "Barron's"),
     ("MarketWatch",        "https://feeds.marketwatch.com/marketwatch/topstories/", "MarketWatch"),
     ("MarketWatch Markets","https://feeds.marketwatch.com/marketwatch/marketpulse/","MarketWatch"),
-    ("Seeking Alpha",      "https://seekingalpha.com/market-news/feed.xml",      "Seeking Alpha"),
     ("Nasdaq News",        "https://www.nasdaq.com/feed/rssoutbound?category=Markets", "NASDAQ"),
-    ("Investopedia",       "https://www.investopedia.com/feedbuilder/feed/getfeed/?feedName=rss_headline", "Investopedia"),
 ]
 
 def fetch_nse_press_releases() -> list:

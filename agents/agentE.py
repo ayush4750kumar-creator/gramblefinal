@@ -13,10 +13,6 @@ import requests
 
 SOURCES = [
     # Global news
-    ("Reuters World",      "https://feeds.reuters.com/reuters/worldNews",      "Reuters"),
-    ("Reuters Economy",    "https://feeds.reuters.com/reuters/economyNews",     "Reuters"),
-    ("AP Business",        "https://feeds.apnews.com/rss/business",             "AP News"),
-    ("AP World",           "https://feeds.apnews.com/rss/world",                "AP News"),
     ("BBC Business",       "http://feeds.bbci.co.uk/news/business/rss.xml",     "BBC News"),
     ("BBC World",          "http://feeds.bbci.co.uk/news/world/rss.xml",        "BBC News"),
     ("Guardian Business",  "https://www.theguardian.com/us/business/rss",       "The Guardian"),
@@ -24,7 +20,6 @@ SOURCES = [
     # India official
     ("PIB India",          "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3", "PIB (Govt of India)"),
     ("PIB Finance",        "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1",    "PIB Finance"),
-    ("ANI News",           "https://www.aninews.in/rss/business.xml",           "ANI"),
     ("NDTV India",         "https://feeds.feedburner.com/ndtvnews-india-news",  "NDTV"),
 ]
 

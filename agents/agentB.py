@@ -12,16 +12,9 @@ from datetime import datetime
 import requests, time
 
 SOURCES = [
-    ("MoneyControl Pre-Market",  "https://www.moneycontrol.com/rss/premarketreports.xml"),
-    ("MoneyControl Morning",     "https://www.moneycontrol.com/rss/morning-news.xml"),
-    ("CNBC TV18 Markets",        "https://www.cnbctv18.com/commonfeeds/v1/eng/rss/market.xml"),
-    ("CNBC TV18 Economy",        "https://www.cnbctv18.com/commonfeeds/v1/eng/rss/economy.xml"),
     ("ET Pre-Open",              "https://economictimes.indiatimes.com/markets/rssfeeds/1977021502.cms"),
-    ("Business Standard Morning","https://www.business-standard.com/rss/markets-106.rss"),
     ("Investing.com Asia",       "https://www.investing.com/rss/news_25.rss"),
     ("Investing.com Economy",    "https://www.investing.com/rss/news_14.rss"),
-    ("Reuters Business",         "https://feeds.reuters.com/reuters/businessNews"),
-    ("Reuters Markets",          "https://feeds.reuters.com/reuters/companyNews"),
 ]
 
 

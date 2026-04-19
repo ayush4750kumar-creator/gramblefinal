@@ -12,15 +12,10 @@ from datetime import datetime
 import requests, time
 
 SOURCES = [
-    ("MoneyControl Latest",       "https://www.moneycontrol.com/rss/latestnews.xml"),
-    ("MoneyControl Markets",      "https://www.moneycontrol.com/rss/marketreports.xml"),
     ("ET Markets",                "https://economictimes.indiatimes.com/markets/rssfeeds/1977021502.cms"),
     ("ET Stocks",                 "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms"),
     ("ET Earnings",               "https://economictimes.indiatimes.com/markets/earnings/rssfeeds/2146842.cms"),
     ("LiveMint Markets",          "https://www.livemint.com/rss/markets"),
-    ("Business Standard Markets", "https://www.business-standard.com/rss/markets-106.rss"),
-    ("Business Standard Stocks",  "https://www.business-standard.com/rss/storyListing/2.rss"),
-    ("Financial Express Markets", "https://www.financialexpress.com/market/feed/"),
     ("NDTV Profit",               "https://feeds.feedburner.com/ndtvprofit-latest"),
 ]
 
@@ -30,7 +25,6 @@ def fetch_yahoo_per_stock(symbols: list) -> list:
     for sym in symbols[:5]:   # cap to avoid hammering
         # Yahoo Finance RSS uses .NS suffix for NSE stocks
         ticker = sym + ".NS" if not sym.endswith(".NS") and len(sym) <= 6 and not sym.isupper() else sym
-        url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
         try:
             entries = fetch_rss(url, f"Yahoo/{sym}", timeout=6)
             for e in entries[:10]:

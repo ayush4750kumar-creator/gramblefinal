@@ -35,7 +35,6 @@ def fetch_sec_edgar(symbol: str, cik: str) -> list:
     articles = []
     try:
         url = f"https://efts.sec.gov/LATEST/search-index?q=%22&dateRange=custom&startdt={(datetime.utcnow()-timedelta(days=3)).strftime('%Y-%m-%d')}&forms=8-K&entity={cik}"
-        rss_url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=8-K&dateb=&owner=include&count=10&search_text=&output=atom"
         entries = fetch_rss(rss_url, f"SEC/{symbol}", timeout=10)
         for e in entries[:5]:
             link = e.get('link', '')
