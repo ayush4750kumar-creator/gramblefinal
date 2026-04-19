@@ -37,6 +37,10 @@ def migrate():
     cur.close(); conn.close()
     print('✅ DB migrated')
 
+def is_financial_article(title, text=""):
+    combined = (title + " " + (text or "")).lower()
+    return any(kw in combined for kw in FINANCIAL_KEYWORDS)
+
 def save_articles(articles: list) -> int:
     articles = [a for a in articles if is_financial_article(a.get("title",""), a.get("full_text",""))]
     if not articles: return 0
@@ -189,6 +193,4 @@ FINANCIAL_KEYWORDS = [
     "rate hike","rate cut","credit rating","moody","fitch","crisil","crore","lakh",
 ]
 
-def is_financial_article(title, text=""):
-    combined = (title + " " + (text or "")).lower()
-    return any(kw in combined for kw in FINANCIAL_KEYWORDS)
+
