@@ -9,52 +9,48 @@ const SENTIMENT = {
 };
 
 const PLACEHOLDER = 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&q=80';
+const API = 'https://gramblefinal-production.up.railway.app/api/news';
 
 const EXCHANGE_TABS = [
-  { key:'NSE',    label:'NSE',    color:'#7c3aed' },
-  { key:'BSE',    label:'BSE',    color:'#ea580c' },
+  { key:'NSE', label:'NSE', color:'#7c3aed' },
+  { key:'BSE', label:'BSE', color:'#ea580c' },
   { key:'NASDAQ', label:'NASDAQ', color:'#2563eb' },
-  { key:'NYSE',   label:'NYSE',   color:'#16a34a' },
+  { key:'NYSE', label:'NYSE', color:'#16a34a' },
 ];
-
 const EXCHANGE_SOURCES = {
-  NSE:    ['nse', 'nse_announcements', 'nse india', 'nseindia'],
-  BSE:    ['bse', 'bse_announcements', 'bombay'],
+  NSE: ['nse','nse_announcements','nse india','nseindia'],
+  BSE: ['bse','bse_announcements','bombay'],
   NASDAQ: ['nasdaq'],
-  NYSE:   ['nyse'],
+  NYSE: ['nyse'],
 };
 
 function isHindi(text) {
   if (!text) return false;
-  const hindiChars = (text.match(/[\u0900-\u097F]/g) || []).length;
-  return hindiChars / text.length > 0.2;
+  return (text.match(/[\u0900-\u097F]/g)||[]).length / text.length > 0.2;
 }
-
 function isVader(text) {
   if (!text) return true;
   return text.toLowerCase().includes('vader') || text.toLowerCase().includes('compound score');
 }
-
 function timeAgo(dateStr) {
   const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
   if (diff < 60) return 'just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
 }
 
 const btnStyle = {
   display:'flex', alignItems:'center', justifyContent:'center', gap:6,
   fontSize:13, fontWeight:600, padding:'10px 0', borderRadius:20,
-  textDecoration:'none', flex:1,
-  background:'#e0f2fe', color:'#0284c7',
+  textDecoration:'none', flex:1, background:'#e0f2fe', color:'#0284c7',
   border:'1.5px solid #bae6fd', cursor:'pointer',
 };
 
 function NewsCard({ a, onWatchlist, watchlist, setView }) {
   const s = SENTIMENT[a.sentiment_label] || null;
-  const cleanTitle = (a.title || '').replace(/^\[(NSE|BSE|SEC)\]\s*/i, '');
-  const cleanSummary = (a.summary_60w || '').replace(/^\[(NSE|BSE|SEC)\]\s*/i, '');
+  const cleanTitle = (a.title||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
+  const cleanSummary = (a.summary_60w||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
   const summary = !isVader(cleanSummary) && cleanSummary !== cleanTitle && cleanSummary.length > 20 ? cleanSummary : null;
   const reason = !isVader(a.sentiment_reason) ? a.sentiment_reason : null;
   const isCompany = !!a.symbol;
@@ -64,27 +60,16 @@ function NewsCard({ a, onWatchlist, watchlist, setView }) {
     <div style={{ background:'#fff', borderRadius:14, border:'1px solid #e5e7eb', boxShadow:'0 2px 8px rgba(0,0,0,0.06)', marginBottom:16, overflow:'hidden' }}>
       <div style={{ width:'100%', height:180, position:'relative', overflow:'hidden' }}>
         <img src={PLACEHOLDER} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-        {s && (
-          <div style={{ position:'absolute', top:12, left:12, background:s.color, color:'#fff', fontSize:11, fontWeight:700, padding:'4px 10px', borderRadius:6 }}>
-            {s.arrow} {s.label.toUpperCase()}
-          </div>
-        )}
+        {s && <div style={{ position:'absolute', top:12, left:12, background:s.color, color:'#fff', fontSize:11, fontWeight:700, padding:'4px 10px', borderRadius:6 }}>{s.arrow} {s.label.toUpperCase()}</div>}
         {isCompany && (
-          <button onClick={() => onWatchlist && onWatchlist(a.symbol)} style={{
-            position:'absolute', top:12, right:12,
-            background: isWatchlisted ? '#2563eb' : 'rgba(255,255,255,0.92)',
-            border:'1px solid #e5e7eb', borderRadius:6, padding:'4px 10px',
-            fontSize:11, fontWeight:600, color: isWatchlisted ? '#fff' : '#374151', cursor:'pointer',
-          }}>
+          <button onClick={() => onWatchlist && onWatchlist(a.symbol)} style={{ position:'absolute', top:12, right:12, background: isWatchlisted ? '#2563eb' : 'rgba(255,255,255,0.92)', border:'1px solid #e5e7eb', borderRadius:6, padding:'4px 10px', fontSize:11, fontWeight:600, color: isWatchlisted ? '#fff' : '#374151', cursor:'pointer' }}>
             {isWatchlisted ? '✓ Watchlisted' : '+ Watchlist'}
           </button>
         )}
       </div>
       <div style={{ padding:'14px 16px' }}>
         <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10, flexWrap:'wrap' }}>
-          <span style={{ fontSize:11, fontWeight:700, background:'#f3f4f6', color:'#374151', padding:'2px 8px', borderRadius:4 }}>
-            {a.symbol || 'Global News'}
-          </span>
+          <span style={{ fontSize:11, fontWeight:700, background:'#f3f4f6', color:'#374151', padding:'2px 8px', borderRadius:4 }}>{a.symbol || 'Global News'}</span>
           <span style={{ fontSize:11, color:'#9ca3af' }}>{a.tag_source_name || a.source}</span>
           <span style={{ fontSize:11, color:'#c4c4c4' }}>·</span>
           <span style={{ fontSize:11, color:'#9ca3af' }}>{timeAgo(a.published_at)}</span>
@@ -105,168 +90,89 @@ function NewsCard({ a, onWatchlist, watchlist, setView }) {
         </div>
         <div style={{ fontSize:15, fontWeight:700, color:'#111', lineHeight:1.5, marginBottom:8 }}>{cleanTitle}</div>
         {summary && <div style={{ fontSize:13, color:'#4b5563', lineHeight:1.65, marginBottom:8 }}>{summary}</div>}
-        {reason && s && (
-          <div style={{ fontSize:12, fontStyle:'italic', background:s.bg, color:s.color, padding:'8px 12px', borderRadius:8, lineHeight:1.6 }}>
-            {reason}
-          </div>
-        )}
+        {reason && s && <div style={{ fontSize:12, fontStyle:'italic', background:s.bg, color:s.color, padding:'8px 12px', borderRadius:8, lineHeight:1.6 }}>{reason}</div>}
       </div>
     </div>
-  );
-}
-
-function StockView({ symbol, setView, onWatchlist, watchlist }) {
-  const [articles, setArticles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const isWatchlisted = watchlist?.find(w => w.symbol === symbol);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`https://gramblefinal-production.up.railway.app/api/news?limit=100&symbol=${symbol}`)
-      .then(r => r.json())
-      .then(d => { setArticles(d.data || []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [symbol]);
-
-  return (
-    <main style={{ background:'#f3f4f6', borderRadius:12, padding:'0', overflowY:'hidden', display:'flex', flexDirection:'column' }}>
-      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0, background:'#fff', borderRadius:'12px 12px 0 0' }}>
-        <button onClick={() => setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>
-        <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>{symbol}</div>
-        {loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>Loading...</span>}
-        {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>{articles.length} articles</span>}
-        <button onClick={() => onWatchlist && onWatchlist(symbol)} style={{
-          marginLeft:'auto', padding:'6px 16px', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer',
-          background: isWatchlisted ? '#2563eb' : '#eff6ff',
-          color: isWatchlisted ? '#fff' : '#2563eb',
-          border: isWatchlisted ? 'none' : '1px solid #bfdbfe',
-        }}>
-          {isWatchlisted ? '✓ In Watchlist' : '+ Add to Watchlist'}
-        </button>
-      </div>
-      <div style={{ overflowY:'auto', padding:'12px 12px', flex:1 }}>
-        {!loading && articles.length === 0 && (
-          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}>
-            <div style={{ fontSize:44 }}>📭</div>
-            <div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news for {symbol}</div>
-          </div>
-        )}
-        {articles.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} />)}
-      </div>
-    </main>
-  );
-}
-
-function WorldExchangeView({ setView, onWatchlist, watchlist }) {
-  const [tab, setTab] = useState('NSE');
-  const [allArticles, setAllArticles] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`https://gramblefinal-production.up.railway.app/api/news?limit=500`)
-      .then(r => r.json())
-      .then(d => { setAllArticles(d.data || []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-
-  const filtered = allArticles.filter(a => {
-    const sources = EXCHANGE_SOURCES[tab] || [];
-    const src = (a.source || '').toLowerCase();
-    const srcName = (a.tag_source_name || '').toLowerCase();
-    const agentSrc = (a.agent_source || '').toLowerCase();
-    return sources.some(s => src.includes(s) || srcName.includes(s) || agentSrc.includes(s));
-  });
-
-  return (
-    <main style={{ background:'#f3f4f6', borderRadius:12, padding:'0', overflowY:'hidden', display:'flex', flexDirection:'column' }}>
-      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0 }}>
-        <button onClick={() => setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>
-        <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>World Exchange</div>
-        {loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>Loading...</span>}
-        {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>{filtered.length} articles</span>}
-      </div>
-      <div style={{ display:'flex', gap:8, marginBottom:16 }}>
-        {EXCHANGE_TABS.map(ex => (
-          <button key={ex.key} onClick={() => setTab(ex.key)} style={{
-            padding:'6px 18px', borderRadius:20, fontSize:12, fontWeight:700,
-            border: tab === ex.key ? 'none' : '1.5px solid #e5e7eb',
-            background: tab === ex.key ? ex.color : '#fff',
-            color: tab === ex.key ? '#fff' : '#374151', cursor:'pointer',
-          }}>{ex.label}</button>
-        ))}
-      </div>
-      {!loading && filtered.length === 0 && (
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}>
-          <div style={{ fontSize:44 }}>📭</div>
-          <div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No {tab} news found</div>
-        </div>
-      )}
-      {filtered.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} />)}
-    </main>
   );
 }
 
 export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [exchangeTab, setExchangeTab] = useState('NSE');
 
-  // Stock view
-  if (view?.type === 'stock') {
-    return <StockView symbol={view.symbol} setView={setView} onWatchlist={onWatchlist} watchlist={watchlist} />;
-  }
-
-  // World Exchange view
-  if (view === 'World Exchange') {
-    return <WorldExchangeView setView={setView} onWatchlist={onWatchlist} watchlist={watchlist} />;
-  }
+  const isStock = view?.type === 'stock';
+  const isExchange = view === 'World Exchange';
 
   useEffect(() => {
-    const fetchNews = () => {
-      const params = view === 'feed' ? '' : `&category=${encodeURIComponent(view)}`;
-      fetch(`https://gramblefinal-production.up.railway.app/api/news?limit=200${params}`)
-        .then(r => r.json())
-        .then(d => {
-          const filtered = (d.data || []).filter(a => {
-            const src = (a.source || '').toLowerCase();
-            const srcName = (a.tag_source_name || '').toLowerCase();
-            const agentSrc = (a.agent_source || '').toLowerCase();
-            const isNSEAnnouncement = src === 'nse_announcements' || srcName === 'nse india' || agentSrc === 'nse' || src === 'nasdaq news' || agentSrc === 'f';
-            const nonFinancialKeywords = ['wrestlemania', 'wwe', 'cricket', 'ipl', 'bollywood', 'movie', 'film', 'celebrity', 'mba admission', 'jnu', 'college admission', 'recipe', 'fashion', 'beauty'];
-            const titleLower = (a.title || '').toLowerCase();
-            const isNonFinancial = nonFinancialKeywords.some(k => titleLower.includes(k));
-            return !isHindi(a.title) && !isNSEAnnouncement && !isNonFinancial;
-          });
-          setArticles(filtered);
-          setLoading(false);
-        })
-        .catch(() => setLoading(false));
-    };
     setLoading(true);
-    fetchNews();
-    const interval = setInterval(fetchNews, 2 * 60 * 1000);
-    return () => clearInterval(interval);
+    let url = `${API}?limit=200`;
+    if (isStock) url = `${API}?limit=100&symbol=${view.symbol}`;
+    else if (!isExchange && view !== 'feed') url = `${API}?limit=200&category=${encodeURIComponent(view)}`;
+    else if (isExchange) url = `${API}?limit=500`;
+
+    fetch(url).then(r => r.json()).then(d => {
+      let data = d.data || [];
+      if (!isStock && !isExchange) {
+        data = data.filter(a => {
+          const src = (a.source||'').toLowerCase();
+          const srcName = (a.tag_source_name||'').toLowerCase();
+          const agentSrc = (a.agent_source||'').toLowerCase();
+          const isNSE = src==='nse_announcements'||srcName==='nse india'||agentSrc==='nse'||src==='nasdaq news'||agentSrc==='f';
+          const bad = ['wrestlemania','wwe','cricket','ipl','bollywood','movie','film','celebrity','mba admission','jnu','college admission','recipe','fashion','beauty'];
+          return !isHindi(a.title) && !isNSE && !bad.some(k => (a.title||'').toLowerCase().includes(k));
+        });
+      }
+      setArticles(data);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+
+    if (!isStock && !isExchange) {
+      const interval = setInterval(() => {
+        fetch(`${API}?limit=200`).then(r=>r.json()).then(d=>setArticles(d.data||[]));
+      }, 2*60*1000);
+      return () => clearInterval(interval);
+    }
   }, [view]);
+
+  const filteredExchange = isExchange ? articles.filter(a => {
+    const sources = EXCHANGE_SOURCES[exchangeTab]||[];
+    return sources.some(s => (a.source||'').toLowerCase().includes(s)||(a.tag_source_name||'').toLowerCase().includes(s)||(a.agent_source||'').toLowerCase().includes(s));
+  }) : [];
+
+  const feedTitle = isStock ? view.symbol : isExchange ? 'World Exchange' : view === 'feed' ? 'Global Feed' : view;
+  const displayArticles = isExchange ? filteredExchange : articles;
 
   return (
     <main style={{ background:'#f3f4f6', borderRadius:12, padding:'0', overflowY:'hidden', display:'flex', flexDirection:'column' }}>
-      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0 }}>
-        {view !== 'feed' && (
-          <button onClick={() => setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>
-        )}
-        <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>{view === 'feed' ? 'Global Feed' : view}</div>
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0, background:'#fff', borderRadius:'12px 12px 0 0' }}>
+        {view !== 'feed' && <button onClick={() => setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>}
+        <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>{feedTitle}</div>
         {loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>Loading...</span>}
-        {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>{articles.length} articles</span>}
+        {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>{displayArticles.length} articles</span>}
+        {isStock && (
+          <button onClick={() => onWatchlist && onWatchlist(view.symbol)} style={{ marginLeft:'auto', padding:'6px 16px', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer', background: watchlist?.find(w=>w.symbol===view.symbol) ? '#2563eb' : '#eff6ff', color: watchlist?.find(w=>w.symbol===view.symbol) ? '#fff' : '#2563eb', border:'1px solid #bfdbfe' }}>
+            {watchlist?.find(w=>w.symbol===view.symbol) ? '✓ In Watchlist' : '+ Add to Watchlist'}
+          </button>
+        )}
       </div>
-      {!loading && articles.length === 0 && (
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'65%', gap:12 }}>
-          <div style={{ fontSize:44 }}>📭</div>
-          <div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No real news found yet</div>
-          <div style={{ fontSize:13, color:'#9ca3af', textAlign:'center', lineHeight:1.7, maxWidth:280 }}>The agents are fetching live market news. Check back in a few minutes.</div>
+
+      {isExchange && (
+        <div style={{ display:'flex', gap:8, padding:'12px 12px 0' }}>
+          {EXCHANGE_TABS.map(ex => (
+            <button key={ex.key} onClick={() => setExchangeTab(ex.key)} style={{ padding:'6px 18px', borderRadius:20, fontSize:12, fontWeight:700, border: exchangeTab===ex.key ? 'none' : '1.5px solid #e5e7eb', background: exchangeTab===ex.key ? ex.color : '#fff', color: exchangeTab===ex.key ? '#fff' : '#374151', cursor:'pointer' }}>{ex.label}</button>
+          ))}
         </div>
       )}
-      <div style={{ overflowY:'auto', padding:'12px 12px', flex:1 }}>
-        {articles.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} />)}
+
+      <div style={{ overflowY:'auto', padding:'12px', flex:1 }}>
+        {!loading && displayArticles.length === 0 && (
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}>
+            <div style={{ fontSize:44 }}>📭</div>
+            <div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news found</div>
+          </div>
+        )}
+        {displayArticles.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} />)}
       </div>
     </main>
   );
