@@ -1,54 +1,54 @@
 """
-agentGroq.py — Parallel Groq AI Sentiment + Summary
-Uses 10 Groq API keys in parallel for fast processing.
-Each article gets: sentiment_label, sentiment_reason, summary_60w
-Articles are marked is_ready=true only after processing.
+agentGroq.py — Groq AI Sentiment + Summary with retry
+Rotates through 10 keys, retries on rate limit, marks is_ready=true.
 """
 import sys, os, time, json
 sys.path.insert(0, os.path.dirname(__file__))
 
 from db_utils import update_article
 import requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.1-8b-instant"
 
-# Load all 10 API keys
-GROQ_KEYS = [
-    os.environ.get(f"GROQ_API_KEY_{i}", "")
-    for i in range(1, 11)
-]
-GROQ_KEYS = [k for k in GROQ_KEYS if k]  # remove empty
+GROQ_KEYS = [k for k in [
+    os.environ.get(f"GROQ_API_KEY_{i}", "") for i in range(1, 11)
+] if k]
+
+print(f"  🔑 Loaded {len(GROQ_KEYS)} Groq keys")
 
 
-def groq_call(api_key: str, prompt: str, max_tokens: int = 200) -> str:
-    """Single Groq API call using a specific key."""
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    body = {
-        "model": GROQ_MODEL,
-        "max_tokens": max_tokens,
-        "temperature": 0.2,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    try:
-        r = requests.post(GROQ_URL, headers=headers, json=body, timeout=15)
-        if r.status_code == 429:
-            time.sleep(5)
-            return ""
-        r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"  ⚠ Groq error: {e}")
-        return ""
+def groq_call_with_retry(prompt: str, max_tokens: int = 200) -> str:
+    """Try all keys with retries until one works."""
+    
+    # Try each key
+    for attempt in range(3):  # 3 full rotations through all keys
+        for i, key in enumerate(GROQ_KEYS):
+            try:
+                r = requests.post(GROQ_URL,
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={"model": GROQ_MODEL, "max_tokens": max_tokens, "temperature": 0.2,
+                          "messages": [{"role": "user", "content": prompt}]},
+                    timeout=20
+                )
+                if r.status_code == 429:
+                    # This key is rate limited, try next
+                    continue
+                r.raise_for_status()
+                return r.json()["choices"][0]["message"]["content"].strip()
+            except Exception as e:
+                continue
+        
+        # All keys failed this round, wait before retry
+        if attempt < 2:
+            wait = 10 * (attempt + 1)
+            print(f"  ⏳ All keys rate limited — waiting {wait}s (attempt {attempt+1}/3)")
+            time.sleep(wait)
+    
+    return ""
 
 
-def process_article(args):
-    """Process a single article — sentiment + summary in one Groq call."""
-    article, api_key = args
+def process_article(article) -> dict:
     title = article.get("title", "") or ""
     text  = article.get("full_text", "") or ""
     combined = title + "\n\n" + text[:1200]
@@ -65,9 +65,9 @@ Respond with exactly this JSON:
   "summary": "summary of key facts and market impact in 60 words or fewer"
 }}"""
 
-    raw = groq_call(api_key, prompt, max_tokens=200)
+    raw = groq_call_with_retry(prompt, max_tokens=200)
     if not raw:
-        return article["id"], None
+        return None
 
     try:
         clean = raw.replace("```json", "").replace("```", "").strip()
@@ -78,7 +78,7 @@ Respond with exactly this JSON:
             label = data.get("sentiment", "neutral").lower()
             if label not in ("bullish", "bearish", "neutral"):
                 label = "neutral"
-            return article["id"], {
+            return {
                 "sentiment_label":  label,
                 "sentiment_reason": data.get("reason", ""),
                 "summary_60w":      data.get("summary", ""),
@@ -87,50 +87,39 @@ Respond with exactly this JSON:
     except Exception as e:
         print(f"  ⚠ JSON parse error: {e}")
 
-    return article["id"], None
+    return None
 
 
 def run(articles: list) -> int:
-    """
-    Process a list of articles using 10 Groq keys in parallel.
-    Each article gets sentiment + summary, then marked is_ready=true.
-    Returns number of articles successfully processed.
-    """
-    print(f"🤖 AgentGroq — Processing {len(articles)} articles with {len(GROQ_KEYS)} parallel keys")
+    print(f"🤖 AgentGroq — Processing {len(articles)} articles with {len(GROQ_KEYS)} keys")
 
     if not GROQ_KEYS:
-        print("  ⚠ No Groq API keys found — skipping")
+        print("  ⚠ No Groq API keys — marking all ready without AI")
+        for art in articles:
+            update_article(art["id"], {"is_ready": True})
         return 0
 
     if not articles:
         print("  ℹ  Nothing to process.")
         return 0
 
-    # Assign keys round-robin to articles
-    tasks = [
-        (article, GROQ_KEYS[i % len(GROQ_KEYS)])
-        for i, article in enumerate(articles)
-    ]
-
     done = 0
     counts = {"bullish": 0, "bearish": 0, "neutral": 0, "failed": 0}
 
-    with ThreadPoolExecutor(max_workers=len(GROQ_KEYS)) as executor:
-        futures = {executor.submit(process_article, task): task for task in tasks}
-        for future in as_completed(futures):
-            try:
-                article_id, result = future.result()
-                if result:
-                    update_article(article_id, result)
-                    counts[result["sentiment_label"]] += 1
-                    done += 1
-                else:
-                    counts["failed"] += 1
-                    # Still mark as ready so it shows on website
-                    update_article(article_id, {"is_ready": True})
-            except Exception as e:
-                print(f"  ⚠ Article processing error: {e}")
-                counts["failed"] += 1
+    for idx, article in enumerate(articles):
+        result = process_article(article)
+        if result:
+            update_article(article["id"], result)
+            counts[result["sentiment_label"]] += 1
+            done += 1
+        else:
+            counts["failed"] += 1
+            # Still mark ready so it shows on website
+            update_article(article["id"], {"is_ready": True})
+
+        # Progress every 20 articles
+        if (idx + 1) % 20 == 0:
+            print(f"  📊 Progress: {idx+1}/{len(articles)} done")
 
     print(
         f"  ✅ AgentGroq done — {done}/{len(articles)} processed | "
