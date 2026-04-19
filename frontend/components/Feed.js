@@ -193,7 +193,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
           const src = (a.source || '').toLowerCase();
           const srcName = (a.tag_source_name || '').toLowerCase();
           const agentSrc = (a.agent_source || '').toLowerCase();
-          const isNSEAnnouncement = src === 'nse_announcements' || srcName === 'nse india' || agentSrc === 'nse';
+          const isNSEAnnouncement = src === 'nse_announcements' || srcName === 'nse india' || agentSrc === 'nse' || src === 'nasdaq news' || agentSrc === 'f';
           return !isHindi(a.title) && !isNSEAnnouncement;
         });
           setArticles(filtered);
