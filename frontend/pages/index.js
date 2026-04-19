@@ -35,7 +35,7 @@ export default function Home() {
   return (
     <div style={{ display:'grid', gridTemplateRows:'58px 1fr', height:'100vh', overflow:'hidden', background:'#f3f4f6' }}>
       <Navbar user={user} onLogin={setUser} onLogoClick={() => setView('feed')} />
-      <div style={{ display:'grid', gridTemplateColumns:'400px 1fr 400px', overflow:'hidden', height:'100%', gap:10, padding:10 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'370px 1fr 370px', overflow:'hidden', height:'100%', gap:10, padding:10 }}>
         <LeftSidebar user={user} watchlist={watchlist} onRemove={removeFromWatchlist} />
         <Feed user={user} view={view} setView={setView} onWatchlist={addToWatchlist} watchlist={watchlist} />
         <RightSidebar setView={setView} />
