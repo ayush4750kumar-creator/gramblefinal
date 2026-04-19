@@ -51,20 +51,25 @@ def run_once(process_only: bool = False, fetch_online: bool = False):
     duped = agentZ.run(hours=48)
     print(f"  ⏱  Dedup layer:    {time.time()-t:.1f}s  ({duped} removed)")
 
-    # ── Layer 4: Keyword Sentiment (fast fallback) ────────────────────────────
+    # ── Layer 4: Sentiment (Groq-powered via AgentO) ──────────────────────────
     t = time.time()
     sentimized = agentO.run(limit=300)
-    print(f"  ⏱  Sentiment (kw): {time.time()-t:.1f}s  ({sentimized} analysed)")
+    print(f"  ⏱  Sentiment:      {time.time()-t:.1f}s  ({sentimized} analysed)")
 
-    # ── Layer 5: Extractive Summary (fast fallback) ───────────────────────────
+    # ── Layer 5: Summary (Groq-powered via AgentP) ───────────────────────────
     t = time.time()
     summarised = agentP.run(limit=300, fetch_online=fetch_online)
-    print(f"  ⏱  Summary (ext):  {time.time()-t:.1f}s  ({summarised} summarised)")
+    print(f"  ⏱  Summary:        {time.time()-t:.1f}s  ({summarised} summarised)")
 
-    # ── Layer 6: Groq AI Enhancement (English AI quality boost) ──────────────
+    # ── Layer 6: Mark articles as ready (visible in feed) ────────────────────
+    from db_utils import mark_articles_ready
+    mark_articles_ready()
+    print(f"  ✅ Articles marked ready for feed")
+
+    # ── Layer 7: Groq extra enhancement ──────────────────────────────────────
     t = time.time()
     groq_done = agentGroq.run(sentiment_limit=80, summary_limit=80)
-    print(f"  ⏱  Groq AI:        {time.time()-t:.1f}s  ({groq_done} AI-enhanced)")
+    print(f"  ⏱  Groq extra:     {time.time()-t:.1f}s  ({groq_done} AI-enhanced)")
 
     elapsed = time.time() - t_total
     print(f"\n✅ Pipeline complete in {elapsed:.1f}s\n")

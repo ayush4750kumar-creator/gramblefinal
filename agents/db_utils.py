@@ -134,3 +134,23 @@ def delete_old_articles():
     cur.close()
     conn.close()
     return deleted
+
+
+def mark_articles_ready():
+    """Mark all processed articles as ready to show in feed."""
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE articles 
+            SET is_ready = true 
+            WHERE is_ready IS NOT DISTINCT FROM false
+            AND sentiment_label IS NOT NULL 
+            AND summary_60w IS NOT NULL
+        """)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+    finally:
+        cur.close()
+        conn.close()
