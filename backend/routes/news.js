@@ -4,22 +4,19 @@ const { pool } = require('../config/database');
 
 router.get('/', async (req, res) => {
   try {
-    const page      = parseInt(req.query.page)      || 1;
-    const limit     = parseInt(req.query.limit)     || 20;
-    const symbol    = req.query.symbol              || null;
-    const sentiment = req.query.sentiment           || null;
-    const category  = req.query.category            || null;
-    const feed      = req.query.feed                || null;
+    const page      = parseInt(req.query.page)  || 1;
+    const limit     = parseInt(req.query.limit) || 20;
+    const symbol    = req.query.symbol    || null;
+    const sentiment = req.query.sentiment || null;
+    const category  = req.query.category  || null;
+    const feed      = req.query.feed      || null;
     const offset    = (page - 1) * limit;
 
     const params = [];
     let p = 1;
-    let where = `WHERE a.published_at >= NOW() - INTERVAL '1 days'
+    let where = `WHERE a.published_at >= NOW() - INTERVAL '30 days'
                    AND a.title IS NOT NULL
-                   AND (a.is_duplicate IS NULL OR a.is_duplicate = false)
-                   AND a.sentiment_label IS NOT NULL
-                   GROUP BY a.id
-`;
+                   AND (a.is_duplicate IS NULL OR a.is_duplicate = false)`;
 
     if (symbol)    { where += ` AND a.symbol = $${p++}`;           params.push(symbol.toUpperCase()); }
     if (sentiment) { where += ` AND a.sentiment_label = $${p++}`;  params.push(sentiment); }
@@ -33,17 +30,15 @@ router.get('/', async (req, res) => {
              sentiment_label, sentiment_reason, agent_source
       FROM articles a
       ${where}
-      ORDER BY
-        CASE WHEN a.source = 'nse_announcements' THEN 1 ELSE 0 END ASC,
-        a.published_at DESC
+      ORDER BY a.published_at DESC
       LIMIT $${p++} OFFSET $${p++}
     `, [...params, limit, offset]);
 
     const countResult = await pool.query(
       `SELECT COUNT(*) as count FROM articles a ${where}`, params
     );
-
     const total = parseInt(countResult.rows[0]?.count || 0);
+
     res.json({
       success: true,
       data: result.rows,
@@ -57,9 +52,7 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT * FROM articles WHERE id = $1', [req.params.id]
-    );
+    const result = await pool.query('SELECT * FROM articles WHERE id = $1', [req.params.id]);
     const article = result.rows[0];
     if (!article) return res.status(404).json({ success: false, error: 'Not found' });
     res.json({ success: true, data: article });
