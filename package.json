@@ -2,7 +2,7 @@
   "name": "gramblefinal",
   "version": "1.0.0",
   "scripts": {
-    "start": "bash start.sh"
+    "start": "node backend/server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

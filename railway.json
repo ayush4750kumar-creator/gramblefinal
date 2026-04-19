@@ -4,8 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "bash start.sh",
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 3
+    "startCommand": "node backend/server.js & python3 agents/pipeline.py --loop --interval 2",
+    "restartPolicyType": "ALWAYS"
   }
 }
