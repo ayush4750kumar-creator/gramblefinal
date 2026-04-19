@@ -5,6 +5,6 @@
   },
   "deploy": {
     "startCommand": "node backend/server.js & python3 agents/pipeline.py --loop --interval 2",
-    "restartPolicyType": "ON_FAILURE"
+    "restartPolicyType": "ALWAYS"
   }
 }
