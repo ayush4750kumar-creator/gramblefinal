@@ -57,7 +57,9 @@ export default function Feed({ user, view, setView }) {
 
       {articles.map(a => {
         const s = SENTIMENT[a.sentiment_label] || null;
-        const summary = !isVader(a.summary_60w) ? a.summary_60w : null;
+        const cleanTitle = (a.title || '').replace(/^\[(NSE|BSE|SEC)\]\s*/i, '');
+        const cleanSummary = (a.summary_60w || '').replace(/^\[(NSE|BSE|SEC)\]\s*/i, '');
+        const summary = !isVader(cleanSummary) && cleanSummary !== cleanTitle && cleanSummary.length > 20 ? cleanSummary : null;
         const reason = !isVader(a.sentiment_reason) ? a.sentiment_reason : null;
 
         return (
@@ -84,11 +86,14 @@ export default function Feed({ user, view, setView }) {
                 style={{ fontSize:15, fontWeight:600, color:'#111', lineHeight:1.45, display:'block', marginBottom:6, textDecoration:'none' }}
                 onMouseEnter={e => e.target.style.color='#2563eb'}
                 onMouseLeave={e => e.target.style.color='#111'}>
-                {(a.title || '').replace(/^\[(NSE|BSE|SEC)\]\s*/i, '')}
+                {cleanTitle}
               </a>
 
               {summary && (
                 <div style={{ fontSize:13, color:'#4b5563', lineHeight:1.65, marginBottom:4 }}>{summary}</div>
+              )}
+              {!summary && a.agent_source === 'nse' && (
+                <div style={{ fontSize:12, color:'#9ca3af' }}>Official NSE filing — no summary available</div>
               )}
 
               {reason && (
