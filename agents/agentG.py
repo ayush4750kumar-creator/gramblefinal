@@ -13,13 +13,9 @@ from datetime import datetime
 import requests, time
 
 LIVE_SOURCES = [
-    ("MoneyControl Live",    "https://www.moneycontrol.com/rss/latestnews.xml",      "MoneyControl"),
     ("ET Markets Live",      "https://economictimes.indiatimes.com/markets/rssfeeds/1977021502.cms", "Economic Times"),
-    ("CNBC TV18 Live",       "https://www.cnbctv18.com/commonfeeds/v1/eng/rss/market.xml", "CNBC TV18"),
     ("Mint Markets",         "https://www.livemint.com/rss/markets",                 "LiveMint"),
-    ("Business Standard Live","https://www.business-standard.com/rss/markets-106.rss","Business Standard"),
     ("StockMarketToday",     "https://stockmarkettodaynews.com/feed/",               "StockMarketToday"),
-    ("ValueResearch",        "https://www.valueresearchonline.com/rss/fund-news.xml","Value Research"),
 ]
 
 # Intraday movement keywords
@@ -32,7 +28,7 @@ INTRADAY_KEYWORDS = [
     "q1", "q2", "q3", "q4", "results", "earnings", "profit", "revenue",
 ]
 
-def fetch_intraday_movers() -> list:
+def fetch_intraday_movers_disabled() -> list:
     """Use yfinance to detect big movers and create news-like articles."""
     articles = []
     try:
@@ -141,7 +137,7 @@ def run() -> int:
         for a in gnews:
             if is_live_article(a["title"] + " " + a["full_text"]):
                 articles.append(a)
-    movers = fetch_intraday_movers()
+    movers = []
     articles += movers
     print(f"  📡 Intraday movers: {len(movers)}")
 
