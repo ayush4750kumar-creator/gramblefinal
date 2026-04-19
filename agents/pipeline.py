@@ -54,12 +54,12 @@ def run_once(process_only: bool = False, fetch_online: bool = False):
 
     # ── Layer 4: Sentiment (Groq-powered via AgentO) ──────────────────────────
     t = time.time()
-    sentimized = agentO.run(limit=300)
+    sentimized = agentO.run(limit=500)
     print(f"  ⏱  Sentiment:      {time.time()-t:.1f}s  ({sentimized} analysed)")
 
     # ── Layer 5: Summary (Groq-powered via AgentP) ───────────────────────────
     t = time.time()
-    summarised = agentP.run(limit=300, fetch_online=fetch_online)
+    summarised = agentP.run(limit=500, fetch_online=fetch_online)
     print(f"  ⏱  Summary:        {time.time()-t:.1f}s  ({summarised} summarised)")
 
     # ── Layer 6: Mark articles as ready (visible in feed) ────────────────────
