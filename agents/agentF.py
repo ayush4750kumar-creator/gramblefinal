@@ -116,7 +116,7 @@ def run() -> int:
 
     print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} live, {len(articles)} articles")
 
-    for q in ["NYSE NASDAQ stock market news", "IPO listing stock exchange today", "SEBI NSE BSE official announcement"]:
+    for q in ["NSE BSE SEBI official circular announcement", "IPO stock market listing today", "NASDAQ NYSE market update"]:
         articles += fetch_google_news(q, "F", "news")
     nse = fetch_nse_press_releases()
     sebi = fetch_sebi_orders()

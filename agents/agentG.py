@@ -136,7 +136,7 @@ def run() -> int:
 
     print(f"  📡 RSS: {live_feeds}/{len(LIVE_SOURCES)} live, {len(articles)} intraday articles")
 
-    for q in ["Nifty Sensex stock market today", "NSE BSE stock surge fall today", "India stocks intraday trading"]:
+    for q in ["Nifty Sensex intraday surge fall today", "NSE BSE stock circuit breaker today", "India stocks trading volume today"]:
         gnews = fetch_google_news(q, "G", "analysis")
         for a in gnews:
             if is_live_article(a["title"] + " " + a["full_text"]):

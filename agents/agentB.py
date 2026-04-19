@@ -25,6 +25,11 @@ SOURCES = [
 ]
 
 
+
+def is_market_news(title: str) -> bool:
+    t = title.lower()
+    return any(kw in t for kw in ['stock', 'market', 'nifty', 'sensex', 'bse', 'nse', 'share', 'equity', 'trading', 'invest', 'earning', 'profit', 'revenue', 'ipo', 'fund', 'economy', 'gdp', 'inflation', 'rate', 'rbi', 'sebi', 'rupee', 'oil', 'gold', 'crypto', 'nasdaq', 'dow', 'fed', 'tariff', 'trade', 'bank', 'finance', 'fiscal'])
+
 def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> list:
     """Fetch Google News RSS as fallback."""
     import urllib.parse
@@ -37,6 +42,8 @@ def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> 
             link = e.get('link', '')
             title = e.get('title', '')
             if not link or not title:
+                continue
+            if not is_market_news(title):
                 continue
             pub = parse_date(e)
             articles.append({
@@ -141,7 +148,7 @@ def run() -> int:
 
     print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} feeds live, {len(articles)} articles")
 
-    for q in ["India stock market pre-market", "Nifty Sensex today", "Indian economy news today"]:
+    for q in ["Nifty Sensex pre-market open", "India stock market opening today", "SGX Nifty gift nifty today"]:
         articles += fetch_google_news(q, "B", "analysis")
     gift = fetch_gift_nifty()
     articles += gift

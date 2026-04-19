@@ -105,6 +105,11 @@ def is_impact_article(text: str) -> bool:
     return any(kw in text_lower for kw in IMPACT_KEYWORDS)
 
 
+
+def is_market_news(title: str) -> bool:
+    t = title.lower()
+    return any(kw in t for kw in ['stock', 'market', 'nifty', 'sensex', 'bse', 'nse', 'share', 'equity', 'trading', 'invest', 'earning', 'profit', 'revenue', 'ipo', 'fund', 'economy', 'gdp', 'inflation', 'rate', 'rbi', 'sebi', 'rupee', 'oil', 'gold', 'crypto', 'nasdaq', 'dow', 'fed', 'tariff', 'trade', 'bank', 'finance', 'fiscal'])
+
 def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> list:
     import urllib.parse
     articles = []
@@ -116,6 +121,8 @@ def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> 
             link = e.get('link', '')
             title = e.get('title', '')
             if not link or not title:
+                continue
+            if not is_market_news(title):
                 continue
             pub = parse_date(e)
             articles.append({
@@ -178,7 +185,7 @@ def run() -> int:
     articles += nse + bse
     print(f"  📡 NSE: {len(nse)} | BSE: {len(bse)} announcements")
 
-    for q in ["India after market stock news", "NSE BSE earnings results today", "Indian stocks after hours"]:
+    for q in ["NSE BSE earnings results quarterly", "India stock market after hours results", "Indian company quarterly profit revenue"]:
         articles += fetch_google_news(q, "C", "news")
     saved = save_articles(articles)
     print(f"  ✅ AgentC done — {len(articles)} total, {saved} new saved\n")
