@@ -12,38 +12,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from db_utils import get_pending_sentiment, update_article
 import re
+import requests as _requests, time as _time
 
-import requests as _requests, os as _os, time as _time
-
-_GROQ_KEY   = _os.environ.get("GROQ_API_KEY", "")
+_GROQ_KEY   = os.environ.get("GROQ_API_KEY", "")
 _GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
 _GROQ_MODEL = "llama-3.1-8b-instant"
 _last_call  = 0
 
-def groq_call(prompt, max_tokens=120):
-    global _last_call
-    if not _GROQ_KEY: return ""
-    gap = 2.5 - (_time.time() - _last_call)
-    if gap > 0: _time.sleep(gap)
-    _last_call = _time.time()
-    try:
-        r = _requests.post(_GROQ_URL,
-            headers={"Authorization": f"Bearer {_GROQ_KEY}", "Content-Type": "application/json"},
-            json={"model": _GROQ_MODEL, "max_tokens": max_tokens, "temperature": 0.2,
-                  "messages": [{"role": "user", "content": prompt}]}, timeout=15)
-        if r.status_code == 429: _time.sleep(65); return ""
-        r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"  ⚠ Groq error: {e}"); return ""
-
-
-import requests as _requests, os as _os, time as _time
-
-_GROQ_KEY   = _os.environ.get("GROQ_API_KEY", "")
-_GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
-_GROQ_MODEL = "llama-3.1-8b-instant"
-_last_call  = 0
 
 def groq_call(prompt, max_tokens=120):
     global _last_call
@@ -232,7 +207,6 @@ def run(limit: int = 300) -> int:
         update_article(art['id'], {
             'sentiment_label':  label,
             'sentiment_reason': reason,
-            # also write to existing 'sentiment' column if it exists (▲/▼)
         })
         counts[label] += 1
 
