@@ -50,10 +50,17 @@ function NewsCard({ a, onWatchlist, watchlist }) {
   const isWatchlisted = watchlist?.find(w => w.symbol === a.symbol);
 
   return (
-    <div style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: 20, marginBottom: 20 }}>
+    <div style={{
+      background: '#fff',
+      borderRadius: 14,
+      border: '1px solid #e5e7eb',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+      marginBottom: 16,
+      overflow: 'hidden',
+    }}>
 
       {/* IMAGE */}
-      <div style={{ width: '100%', height: 180, borderRadius: 12, overflow: 'hidden', marginBottom: 12, position: 'relative' }}>
+      <div style={{ width: '100%', height: 180, position: 'relative', overflow: 'hidden' }}>
         <img src={PLACEHOLDER} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
 
         {s && (
@@ -85,60 +92,64 @@ function NewsCard({ a, onWatchlist, watchlist }) {
         )}
       </div>
 
-      {/* Meta */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, fontWeight: 700, background: '#f3f4f6', color: '#374151', padding: '2px 8px', borderRadius: 4 }}>
-          {a.symbol || 'Global News'}
-        </span>
-        <span style={{ fontSize: 11, color: '#9ca3af' }}>{a.tag_source_name || a.source}</span>
-        <span style={{ fontSize: 11, color: '#c4c4c4' }}>·</span>
-        <span style={{ fontSize: 11, color: '#9ca3af' }}>{timeAgo(a.published_at)}</span>
-      </div>
+      {/* Card body */}
+      <div style={{ padding: '14px 16px' }}>
 
-      {/* Buttons */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-        <a
-          href={a.url} target="_blank" rel="noreferrer"
-          style={btnStyle}
-          onMouseEnter={e => e.currentTarget.style.background = '#bae6fd'}
-          onMouseLeave={e => e.currentTarget.style.background = '#e0f2fe'}
-        >
-          Read Article <span style={{ fontSize: 15 }}>↗</span>
-        </a>
-        {isCompany && (
+        {/* Meta */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, background: '#f3f4f6', color: '#374151', padding: '2px 8px', borderRadius: 4 }}>
+            {a.symbol || 'Global News'}
+          </span>
+          <span style={{ fontSize: 11, color: '#9ca3af' }}>{a.tag_source_name || a.source}</span>
+          <span style={{ fontSize: 11, color: '#c4c4c4' }}>·</span>
+          <span style={{ fontSize: 11, color: '#9ca3af' }}>{timeAgo(a.published_at)}</span>
+        </div>
+
+        {/* Buttons */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
           <a
-            href={`/stock/${a.symbol}`}
+            href={a.url} target="_blank" rel="noreferrer"
             style={btnStyle}
             onMouseEnter={e => e.currentTarget.style.background = '#bae6fd'}
             onMouseLeave={e => e.currentTarget.style.background = '#e0f2fe'}
           >
-            Stock Analysis <span style={{ fontSize: 14 }}>→</span>
+            Read Article <span style={{ fontSize: 15 }}>↗</span>
           </a>
+          {isCompany && (
+            <a
+              href={`/stock/${a.symbol}`}
+              style={btnStyle}
+              onMouseEnter={e => e.currentTarget.style.background = '#bae6fd'}
+              onMouseLeave={e => e.currentTarget.style.background = '#e0f2fe'}
+            >
+              Stock Analysis <span style={{ fontSize: 14 }}>→</span>
+            </a>
+          )}
+        </div>
+
+        {/* Title */}
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#111', lineHeight: 1.5, marginBottom: 8 }}>
+          {cleanTitle}
+        </div>
+
+        {/* Summary */}
+        {summary && (
+          <div style={{ fontSize: 13, color: '#4b5563', lineHeight: 1.65, marginBottom: 8 }}>
+            {summary}
+          </div>
+        )}
+
+        {/* Sentiment reason */}
+        {reason && s && (
+          <div style={{
+            fontSize: 12, fontStyle: 'italic',
+            background: s.bg, color: s.color,
+            padding: '8px 12px', borderRadius: 8, lineHeight: 1.6
+          }}>
+            {reason}
+          </div>
         )}
       </div>
-
-      {/* Title */}
-      <div style={{ fontSize: 15, fontWeight: 700, color: '#111', lineHeight: 1.5, marginBottom: 8 }}>
-        {cleanTitle}
-      </div>
-
-      {/* Summary */}
-      {summary && (
-        <div style={{ fontSize: 13, color: '#4b5563', lineHeight: 1.65, marginBottom: 8 }}>
-          {summary}
-        </div>
-      )}
-
-      {/* Sentiment reason */}
-      {reason && s && (
-        <div style={{
-          fontSize: 12, fontStyle: 'italic',
-          background: s.bg, color: s.color,
-          padding: '8px 12px', borderRadius: 8, lineHeight: 1.6
-        }}>
-          {reason}
-        </div>
-      )}
     </div>
   );
 }
@@ -166,8 +177,9 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   }, [view]);
 
   return (
-    <main style={{ background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', padding: '20px 24px', overflowY: 'auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, paddingBottom: 14, borderBottom: '1px solid #e5e7eb' }}>
+    <main style={{ background: '#f3f4f6', borderRadius: 12, padding: '16px 12px', overflowY: 'auto' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '4px 4px 14px', borderBottom: '1px solid #e5e7eb' }}>
         {view !== 'feed' && (
           <button onClick={() => setView('feed')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#6b7280', padding: 0 }}>←</button>
         )}
