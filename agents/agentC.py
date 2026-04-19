@@ -15,11 +15,11 @@ SOURCES = [
     ("MoneyControl Evening",      "https://www.moneycontrol.com/rss/marketreports.xml"),
     ("ET After Hours",            "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms"),
     ("LiveMint Evening",          "https://www.livemint.com/rss/markets"),
-    ("Reuters Business Evening",  "https://feeds.reuters.com/reuters/businessNews"),
-    ("AP Markets",                "https://rsshub.app/apnews/topics/financial-markets"),
-    ("Bloomberg Markets Alt",     "https://feeds.bloomberg.com/markets/news.rss"),
-    ("Seeking Alpha",             "https://seekingalpha.com/feed.xml"),
-    ("Business Standard Evening", "https://www.business-standard.com/rss/markets-106.rss"),
+    ("Reuters Business Evening",  "https://feeds.bbci.co.uk/news/business/rss.xml"),
+    ("AP Markets",                "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"),
+    ("Bloomberg Markets Alt",     "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms"),
+    ("Seeking Alpha",             "https://www.thehindubusinessline.com/markets/?service=rss"),
+    ("Business Standard Evening", "https://economictimes.indiatimes.com/industry/rssfeeds/13352306.cms"),
 ]
 
 # Keywords that signal next-session impact
