@@ -19,7 +19,7 @@ import requests
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL   = "llama3-8b-8192"
+GROQ_MODEL   = "llama-3.1-8b-instant"
 
 # ── Rate limit config ─────────────────────────────────────────────────────────
 MAX_PER_MINUTE  = 25     # stay under Groq's 30/min limit
