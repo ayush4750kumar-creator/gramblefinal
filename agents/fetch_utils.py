@@ -70,7 +70,7 @@ HEADERS = {
     )
 }
 
-def fetch_rss(url: str, source_name: str, timeout=10) -> list:
+def fetch_rss(url: str, source_name: str, timeout=5) -> list:
     """Parse an RSS/Atom feed. Returns list of raw entry dicts."""
     try:
         resp = requests.get(url, headers=HEADERS, timeout=timeout)
@@ -121,7 +121,7 @@ def is_after_hours(dt_str: str) -> int:
     except Exception:
         return 0
 
-def fetch_article_text(url: str, timeout=8) -> str:
+def fetch_article_text(url: str, timeout=5) -> str:
     """Try to pull article full text. Falls back to empty string."""
     try:
         from newspaper import Article

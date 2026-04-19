@@ -27,7 +27,7 @@ SOURCES = [
 def fetch_yahoo_per_stock(symbols: list) -> list:
     """Fetch 10 articles per symbol from Yahoo Finance RSS."""
     articles = []
-    for sym in symbols[:40]:   # cap to avoid hammering
+    for sym in symbols[:5]:   # cap to avoid hammering
         # Yahoo Finance RSS uses .NS suffix for NSE stocks
         ticker = sym + ".NS" if not sym.endswith(".NS") and len(sym) <= 6 and not sym.isupper() else sym
         url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
