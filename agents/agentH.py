@@ -80,7 +80,7 @@ def fetch_company_news(symbol: str, name: str) -> list:
         query = f"{name} stock earnings results"
         q = urllib.parse.quote(query)
         url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
-        entries = fetch_rss(url, f"{symbol}", timeout=5)
+        entries = fetch_rss(url, f"{symbol}", timeout=3)
         for e in entries[:3]:
             link = e.get('link', '')
             title = e.get('title', '')
@@ -114,7 +114,7 @@ def run() -> int:
     with ThreadPoolExecutor(max_workers=20) as ex:
         futures = {ex.submit(fetch_company_news, sym, name): sym
                    for sym, name in all_companies}
-        for fut in as_completed(futures, timeout=45):
+        for fut in as_completed(futures, timeout=30):
             try:
                 for a in fut.result():
                     if a['url'] not in seen_urls:
