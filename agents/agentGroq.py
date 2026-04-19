@@ -1,17 +1,16 @@
 """
-agentGroq.py — Groq AI Sentiment + Summary (optimized)
-- Per-key cooldown tracking (no wasted retries on limited keys)
-- Concurrent processing with ThreadPoolExecutor
-- Batched DB writes (1 connection per batch, not per article)
+agentGroq.py — Groq AI Sentiment + Summary
+- Sequential processing (stable, no threading bugs)
+- Per-key cooldown tracking (no wasted waits on limited keys)
 - Respects Retry-After headers from Groq
+- Batched DB writes every 20 articles
+- Summary enforced 30–60 words
 """
-import sys, os, time, json, threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import sys, os, time, json
 sys.path.insert(0, os.path.dirname(__file__))
 
 from db_utils import get_conn
 import requests
-import psycopg2.extras
 
 GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.1-8b-instant"
@@ -22,57 +21,36 @@ GROQ_KEYS = [k for k in [
 
 print(f"  🔑 Loaded {len(GROQ_KEYS)} Groq keys")
 
-
-# ── Per-key cooldown tracker ──────────────────────────────────────────────────
-
-class KeyPool:
-    """Tracks per-key rate limit cooldowns. Thread-safe."""
-
-    def __init__(self, keys: list[str]):
-        self.keys = keys
-        # available_at[i] = unix timestamp when key i is usable again
-        self._available_at = [0.0] * len(keys)
-        self._lock = threading.Lock()
-
-    def get_key(self) -> tuple[int, str] | None:
-        """Return (index, key) for the soonest-available key, sleeping if needed."""
-        with self._lock:
-            now = time.time()
-            # Find any immediately available key
-            for i, key in enumerate(self.keys):
-                if self._available_at[i] <= now:
-                    return i, key
-            # All limited — find the one that unlocks soonest
-            idx = min(range(len(self.keys)), key=lambda i: self._available_at[i])
-            wait = self._available_at[idx] - now
-        # Sleep outside the lock so other threads aren't blocked
-        if wait > 0:
-            time.sleep(wait)
-        return idx, self.keys[idx]
-
-    def mark_limited(self, idx: int, retry_after: float = 60.0):
-        with self._lock:
-            # Don't shorten an existing cooldown
-            earliest = time.time() + retry_after
-            if self._available_at[idx] < earliest:
-                self._available_at[idx] = earliest
-
-    def all_cooldown_remaining(self) -> float:
-        with self._lock:
-            return max(0.0, min(self._available_at) - time.time())
+# Per-key cooldown: index -> unix timestamp when usable again
+_key_available_at = [0.0] * len(GROQ_KEYS)
 
 
-# ── Single Groq call ──────────────────────────────────────────────────────────
+def get_best_key() -> tuple[int, str]:
+    """Return (index, key) for the soonest-available key, sleeping only if needed."""
+    now = time.time()
+    for i, key in enumerate(GROQ_KEYS):
+        if _key_available_at[i] <= now:
+            return i, key
+    # All limited — sleep only until the soonest one unlocks
+    idx  = min(range(len(GROQ_KEYS)), key=lambda i: _key_available_at[i])
+    wait = _key_available_at[idx] - now
+    print(f"  ⏳ All keys rate limited — waiting {wait:.0f}s for key {idx+1} to unlock")
+    time.sleep(wait)
+    return idx, GROQ_KEYS[idx]
 
-def groq_call(pool: KeyPool, prompt: str, max_tokens: int = 200) -> str:
-    """
-    Make one Groq call, rotating keys and respecting rate limits.
-    Retries up to len(keys) * 2 times before giving up.
-    """
-    max_attempts = len(pool.keys) * 2 or 6
 
-    for attempt in range(max_attempts):
-        idx, key = pool.get_key()
+def mark_key_limited(idx: int, retry_after: float = 60.0):
+    earliest = time.time() + retry_after
+    if _key_available_at[idx] < earliest:
+        _key_available_at[idx] = earliest
+
+
+def groq_call(prompt: str, max_tokens: int = 250) -> str:
+    """Try keys smartly — skip limited ones, sleep only for the soonest reset."""
+    max_attempts = max(len(GROQ_KEYS) * 2, 6)
+
+    for _ in range(max_attempts):
+        idx, key = get_best_key()
         try:
             r = requests.post(
                 GROQ_URL,
@@ -81,8 +59,8 @@ def groq_call(pool: KeyPool, prompt: str, max_tokens: int = 200) -> str:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": GROQ_MODEL,
-                    "max_tokens": max_tokens,
+                    "model":       GROQ_MODEL,
+                    "max_tokens":  max_tokens,
                     "temperature": 0.2,
                     "messages": [{"role": "user", "content": prompt}],
                 },
@@ -90,26 +68,22 @@ def groq_call(pool: KeyPool, prompt: str, max_tokens: int = 200) -> str:
             )
 
             if r.status_code == 429:
-                # Respect Retry-After if present, default 60s
                 retry_after = float(r.headers.get("retry-after", 60))
-                pool.mark_limited(idx, retry_after)
-                continue  # immediately try next available key
+                mark_key_limited(idx, retry_after)
+                continue  # immediately try next best key
 
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"].strip()
 
         except requests.exceptions.Timeout:
-            # Don't penalise key for a timeout
-            continue
+            continue  # don't penalise key for a timeout
         except Exception:
             continue
 
     return ""
 
 
-# ── Per-article processing ────────────────────────────────────────────────────
-
-def process_article(pool: KeyPool, article: dict) -> dict | None:
+def process_article(article: dict) -> dict | None:
     title    = article.get("title", "") or ""
     text     = article.get("full_text", "") or ""
     combined = (title + "\n\n" + text[:1200]).strip()
@@ -128,7 +102,7 @@ Respond with exactly this JSON:
 
 CRITICAL: The summary field MUST contain between 30 and 60 words. Count carefully before responding."""
 
-    raw = groq_call(pool, prompt, max_tokens=250)
+    raw = groq_call(prompt, max_tokens=250)
     if not raw:
         return None
 
@@ -137,21 +111,20 @@ CRITICAL: The summary field MUST contain between 30 and 60 words. Count carefull
         start = clean.find("{")
         end   = clean.rfind("}") + 1
         if start >= 0 and end > start:
-            data    = json.loads(clean[start:end])
-            label   = data.get("sentiment", "neutral").lower()
+            data  = json.loads(clean[start:end])
+            label = data.get("sentiment", "neutral").lower()
             if label not in ("bullish", "bearish", "neutral"):
                 label = "neutral"
 
             summary = data.get("summary", "").strip()
+            words   = summary.split()
 
-            # Hard enforce 30–60 words: trim if over, discard if under
-            words = summary.split()
+            # Hard enforce 30–60 words
             if len(words) > 60:
                 summary = " ".join(words[:60])
             elif len(words) < 30:
-                # Too short — build a minimal fallback from title
-                summary = (title + " " + summary).strip()
-                words = summary.split()
+                summary = (title + ". " + summary).strip()
+                words   = summary.split()
                 summary = " ".join(words[:60]) if len(words) > 60 else summary
 
             return {
@@ -167,10 +140,8 @@ CRITICAL: The summary field MUST contain between 30 and 60 words. Count carefull
     return None
 
 
-# ── Batched DB write ──────────────────────────────────────────────────────────
-
 def flush_results(results: list[dict]):
-    """Write a batch of results to DB in a single connection."""
+    """Write a batch of results in one DB connection."""
     if not results:
         return
     conn = get_conn()
@@ -188,7 +159,7 @@ def flush_results(results: list[dict]):
                     r.get("sentiment_label"),
                     r.get("sentiment_reason", ""),
                     r.get("summary_60w", ""),
-                    r.get("is_ready", True),
+                    True,
                     r["id"],
                 ),
             )
@@ -199,7 +170,7 @@ def flush_results(results: list[dict]):
 
 
 def mark_ready_batch(article_ids: list[int]):
-    """Mark articles as ready without sentiment (fallback)."""
+    """Mark failed articles ready so the site doesn't stall."""
     if not article_ids:
         return
     conn = get_conn()
@@ -215,16 +186,7 @@ def mark_ready_batch(article_ids: list[int]):
         conn.close()
 
 
-# ── Main run ──────────────────────────────────────────────────────────────────
-
-def run(articles: list, max_workers: int = 5, flush_every: int = 20) -> int:
-    """
-    Process articles concurrently.
-
-    max_workers : how many threads hit Groq in parallel.
-                  Keep ≤ number of keys to avoid thrashing.
-    flush_every : write results to DB after every N completions.
-    """
+def run(articles: list) -> int:
     print(f"🤖 AgentGroq — Processing {len(articles)} articles with {len(GROQ_KEYS)} keys")
 
     if not GROQ_KEYS:
@@ -236,52 +198,41 @@ def run(articles: list, max_workers: int = 5, flush_every: int = 20) -> int:
         print("  ℹ  Nothing to process.")
         return 0
 
-    pool   = KeyPool(GROQ_KEYS)
-    counts = {"bullish": 0, "bearish": 0, "neutral": 0, "failed": 0}
-    done   = 0
+    counts     = {"bullish": 0, "bearish": 0, "neutral": 0, "failed": 0}
+    done       = 0
+    pending    : list[dict] = []
+    failed_ids : list[int]  = []
+    start_time = time.time()
 
-    pending_writes: list[dict] = []
-    failed_ids:     list[int]  = []
-    write_lock = threading.Lock()
+    for idx, article in enumerate(articles):
+        result = process_article(article)
 
-    # Limit concurrency to number of keys (no point exceeding it)
-    workers = min(max_workers, len(GROQ_KEYS))
+        if result:
+            pending.append(result)
+            counts[result["sentiment_label"]] += 1
+            done += 1
+        else:
+            failed_ids.append(article["id"])
+            counts["failed"] += 1
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(process_article, pool, art): art
-            for art in articles
-        }
+        # Flush to DB every 20 articles (one connection per batch)
+        if len(pending) >= 20:
+            flush_results(pending)
+            pending.clear()
 
-        completed = 0
-        for future in as_completed(futures):
-            art    = futures[future]
-            result = future.result()
-            completed += 1
-
-            with write_lock:
-                if result:
-                    pending_writes.append(result)
-                    counts[result["sentiment_label"]] += 1
-                    done += 1
-                else:
-                    failed_ids.append(art["id"])
-                    counts["failed"] += 1
-
-                # Flush to DB every flush_every completions
-                if len(pending_writes) >= flush_every:
-                    flush_results(pending_writes)
-                    pending_writes.clear()
-
-                if completed % 20 == 0:
-                    print(f"  📊 Progress: {completed}/{len(articles)} done")
+        if (idx + 1) % 20 == 0:
+            elapsed = time.time() - start_time
+            rate    = (idx + 1) / elapsed
+            eta     = (len(articles) - idx - 1) / rate if rate > 0 else 0
+            print(f"  📊 Progress: {idx+1}/{len(articles)} | {rate:.1f}/s | ETA {eta:.0f}s")
 
     # Final flush
-    flush_results(pending_writes)
-    mark_ready_batch(failed_ids)   # mark failures ready so site doesn't stall
+    flush_results(pending)
+    mark_ready_batch(failed_ids)
 
+    elapsed = time.time() - start_time
     print(
-        f"  ✅ AgentGroq done — {done}/{len(articles)} processed | "
+        f"  ✅ AgentGroq done — {done}/{len(articles)} processed in {elapsed:.0f}s | "
         f"🟢 {counts['bullish']} bullish | "
         f"🔴 {counts['bearish']} bearish | "
         f"⚪ {counts['neutral']} neutral | "
