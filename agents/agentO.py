@@ -13,6 +13,56 @@ sys.path.insert(0, os.path.dirname(__file__))
 from db_utils import get_pending_sentiment, update_article
 import re
 
+import requests as _requests, os as _os, time as _time
+
+_GROQ_KEY   = _os.environ.get("GROQ_API_KEY", "")
+_GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
+_GROQ_MODEL = "llama-3.1-8b-instant"
+_last_call  = 0
+
+def groq_call(prompt, max_tokens=120):
+    global _last_call
+    if not _GROQ_KEY: return ""
+    gap = 2.5 - (_time.time() - _last_call)
+    if gap > 0: _time.sleep(gap)
+    _last_call = _time.time()
+    try:
+        r = _requests.post(_GROQ_URL,
+            headers={"Authorization": f"Bearer {_GROQ_KEY}", "Content-Type": "application/json"},
+            json={"model": _GROQ_MODEL, "max_tokens": max_tokens, "temperature": 0.2,
+                  "messages": [{"role": "user", "content": prompt}]}, timeout=15)
+        if r.status_code == 429: _time.sleep(65); return ""
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"  ⚠ Groq error: {e}"); return ""
+
+
+import requests as _requests, os as _os, time as _time
+
+_GROQ_KEY   = _os.environ.get("GROQ_API_KEY", "")
+_GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
+_GROQ_MODEL = "llama-3.1-8b-instant"
+_last_call  = 0
+
+def groq_call(prompt, max_tokens=120):
+    global _last_call
+    if not _GROQ_KEY: return ""
+    gap = 2.5 - (_time.time() - _last_call)
+    if gap > 0: _time.sleep(gap)
+    _last_call = _time.time()
+    try:
+        r = _requests.post(_GROQ_URL,
+            headers={"Authorization": f"Bearer {_GROQ_KEY}", "Content-Type": "application/json"},
+            json={"model": _GROQ_MODEL, "max_tokens": max_tokens, "temperature": 0.2,
+                  "messages": [{"role": "user", "content": prompt}]}, timeout=15)
+        if r.status_code == 429: _time.sleep(65); return ""
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"  ⚠ Groq error: {e}"); return ""
+
+
 # ── Sentiment lexicon ─────────────────────────────────────────────────────────
 
 BULLISH_STRONG = {
@@ -133,24 +183,34 @@ def try_vader(text: str):
 
 
 def analyse_article(title: str, text: str) -> tuple:
-    """Returns (label, reason)."""
-    combined = (title or '') + ' ' + (text or '')
+    """Returns (label, reason) — uses Groq if available, else keyword fallback."""
+    combined = (title or '') + ' ' + (text or '')[:800]
 
-    # Try VADER first (richer model)
-    vader_result = try_vader(combined)
-    if vader_result:
-        return vader_result
+    if _GROQ_KEY:
+        prompt = f"""You are a financial analyst. Read this news and respond with ONLY a JSON object.
+Article: {combined[:600]}
+Respond exactly: {{"sentiment": "bullish" or "bearish" or "neutral", "reason": "one sentence max 20 words explaining why"}}"""
+        raw = groq_call(prompt, max_tokens=80)
+        if raw:
+            try:
+                import json
+                clean = raw.replace("```json","").replace("```","").strip()
+                start, end = clean.find("{"), clean.rfind("}")+1
+                if start >= 0 and end > start:
+                    data = json.loads(clean[start:end])
+                    label = data.get("sentiment","neutral").lower()
+                    if label not in ("bullish","bearish","neutral"): label = "neutral"
+                    return label, data.get("reason","")
+            except: pass
 
     # Fallback: keyword scoring
     tokens = tokenise(combined)
     _, trigger, intensity, label = score_text(tokens)
-
     if label == 'neutral':
         reason = REASON_TEMPLATES[('neutral', '')]
     else:
         template = REASON_TEMPLATES.get((label, intensity), "{word} trend detected.")
         reason = template.format(word=trigger)
-
     return label, reason
 
 
