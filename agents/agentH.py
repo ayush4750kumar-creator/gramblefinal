@@ -180,14 +180,14 @@ def fetch_one_company(symbol: str, name: str) -> list:
     query = f"{name} stock earnings results"
     results += fetch_google_news(symbol, query)
     if len(results) < 2:
-        results += fetch_bing_news(symbol, query)
+        # results += fetch_bing_news(symbol, query)  # disabled - hangs on Railway
     return results
 
 def fetch_one_topic(symbol: str, query: str) -> list:
     """Fetch global market topic news."""
     results = fetch_google_news(symbol, query, lang="en-US", country="US")
     if len(results) < 2:
-        results += fetch_bing_news(symbol, query)
+        # results += fetch_bing_news(symbol, query)  # disabled - hangs on Railway
     return results
 
 def run() -> int:
