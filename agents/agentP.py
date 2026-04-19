@@ -103,7 +103,7 @@ def run(limit=20, fetch_online=False):
         if not text:
             text = description or title
         summary = ""
-        if _GROQ_KEY:
+        if False:  # disabled Groq for speed
             prompt = (
                 "Summarise this financial news in exactly 60 words or fewer. "
                 "Be factual, mention company names, numbers, and market impact. "
