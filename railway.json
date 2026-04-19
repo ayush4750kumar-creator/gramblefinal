@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "node backend/server.js & python3 agents/pipeline.py --loop --interval 2",
+    "startCommand": "node backend/server.js & sleep 5 && python3 agents/pipeline.py --loop --interval 2",
     "restartPolicyType": "ALWAYS"
   }
 }
