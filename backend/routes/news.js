@@ -17,6 +17,7 @@ router.get('/', async (req, res) => {
     let where = `WHERE a.published_at >= NOW() - INTERVAL '1 days'
                    AND a.title IS NOT NULL
                    AND (a.is_duplicate IS NULL OR a.is_duplicate = false)
+                   AND a.sentiment_label IS NOT NULL
                    GROUP BY a.id
 `;
 
