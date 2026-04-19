@@ -204,8 +204,12 @@ def run(articles: list) -> int:
     failed_ids : list[int]  = []
     start_time = time.time()
 
+    # 10 keys × 30 RPM = 300 RPM max. Use 0.4s gap = ~2.5 req/s, safely under limit.
+    REQUEST_DELAY = 0.4
+
     for idx, article in enumerate(articles):
         result = process_article(article)
+        time.sleep(REQUEST_DELAY)
 
         if result:
             pending.append(result)
