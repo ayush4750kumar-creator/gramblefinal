@@ -69,9 +69,9 @@ export default function Feed({ user, view, setView }) {
             <div style={{ flex:1 }}>
               <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:7, flexWrap:'wrap' }}>
                 {a.symbol ? (
-                  <span style={{ fontSize:11, fontWeight:700, background:'#eff6ff', color:'#2563eb', padding:'2px 8px', borderRadius:4 }}>{a.symbol}</span>
+                  <span style={{ fontSize:11, fontWeight:600, background:'#f3f4f6', color:'#374151', padding:'2px 8px', borderRadius:4 }}>{a.symbol}</span>
                 ) : (
-                  <span style={{ fontSize:11, fontWeight:700, background:'#f0fdf4', color:'#16a34a', padding:'2px 8px', borderRadius:4 }}>Global News</span>
+                  <span style={{ fontSize:11, fontWeight:600, background:'#f3f4f6', color:'#374151', padding:'2px 8px', borderRadius:4 }}>Global News</span>
                 )}
                 {s && (
                   <span style={{ fontSize:11, fontWeight:700, background:s.bg, color:s.color, padding:'2px 8px', borderRadius:4 }}>{s.label}</span>
@@ -84,7 +84,7 @@ export default function Feed({ user, view, setView }) {
                 style={{ fontSize:15, fontWeight:600, color:'#111', lineHeight:1.45, display:'block', marginBottom:6, textDecoration:'none' }}
                 onMouseEnter={e => e.target.style.color='#2563eb'}
                 onMouseLeave={e => e.target.style.color='#111'}>
-                {a.title}
+                {(a.title || '').replace(/^\[(NSE|BSE|SEC)\]\s*/i, '')}
               </a>
 
               {summary && (
