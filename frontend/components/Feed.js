@@ -29,34 +29,59 @@ function timeAgo(dateStr) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-function NewsCard({ a }) {
+const btnBase = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+  fontSize: 13, fontWeight: 600,
+  padding: '10px 0', borderRadius: 20,
+  textDecoration: 'none', flex: 1,
+  background: '#e0f2fe', color: '#0284c7',
+  border: '1.5px solid #bae6fd',
+  cursor: 'pointer',
+  transition: 'background 0.15s',
+};
+
+function NewsCard({ a, onWatchlist }) {
   const s = SENTIMENT[a.sentiment_label] || null;
   const cleanTitle = (a.title || '').replace(/^\[(NSE|BSE|SEC)\]\s*/i, '');
   const cleanSummary = (a.summary_60w || '').replace(/^\[(NSE|BSE|SEC)\]\s*/i, '');
   const summary = !isVader(cleanSummary) && cleanSummary !== cleanTitle && cleanSummary.length > 20 ? cleanSummary : null;
   const reason = !isVader(a.sentiment_reason) ? a.sentiment_reason : null;
+  const isCompany = !!a.symbol;
 
   return (
     <div style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: 20, marginBottom: 20 }}>
 
-      {/* IMAGE — full width */}
+      {/* IMAGE — full width with overlays */}
       <div style={{ width: '100%', height: 200, borderRadius: 12, overflow: 'hidden', marginBottom: 12, position: 'relative' }}>
-        <img
-          src={PLACEHOLDER}
-          alt=""
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        />
-        {/* Sentiment badge overlaid on image */}
+        <img src={PLACEHOLDER} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+
+        {/* Sentiment badge */}
         {s && (
           <div style={{
             position: 'absolute', top: 12, left: 12,
             background: s.color, color: '#fff',
             fontSize: 11, fontWeight: 700,
             padding: '4px 10px', borderRadius: 6,
-            display: 'flex', alignItems: 'center', gap: 4
           }}>
             {s.arrow} {s.label.toUpperCase()}
           </div>
+        )}
+
+        {/* + Watchlist button — only for company news */}
+        {isCompany && (
+          <button
+            onClick={() => onWatchlist && onWatchlist(a.symbol)}
+            style={{
+              position: 'absolute', top: 12, right: 12,
+              background: 'rgba(255,255,255,0.9)',
+              border: '1px solid #e5e7eb',
+              borderRadius: 6, padding: '4px 10px',
+              fontSize: 11, fontWeight: 600, color: '#374151',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4
+            }}
+          >
+            + Watchlist
+          </button>
         )}
       </div>
 
@@ -70,31 +95,35 @@ function NewsCard({ a }) {
         <span style={{ fontSize: 11, color: '#9ca3af' }}>{timeAgo(a.published_at)}</span>
       </div>
 
-      {/* Read Article button — full width */}
-      <a
-        href={a.url}
-        target="_blank"
-        rel="noreferrer"
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-          background: '#2563eb', color: '#fff',
-          fontSize: 13, fontWeight: 600,
-          padding: '10px 0', borderRadius: 8,
-          textDecoration: 'none', marginBottom: 12,
-          width: '100%'
-        }}
-        onMouseEnter={e => e.currentTarget.style.background = '#1d4ed8'}
-        onMouseLeave={e => e.currentTarget.style.background = '#2563eb'}
-      >
-        Read Article <span style={{ fontSize: 15 }}>↗</span>
-      </a>
+      {/* Buttons row */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+        <a
+          href={a.url} target="_blank" rel="noreferrer"
+          style={btnBase}
+          onMouseEnter={e => e.currentTarget.style.background = '#bae6fd'}
+          onMouseLeave={e => e.currentTarget.style.background = '#e0f2fe'}
+        >
+          Read Article <span style={{ fontSize: 15 }}>↗</span>
+        </a>
+
+        {isCompany && (
+          <a
+            href={`/stock/${a.symbol}`}
+            style={btnBase}
+            onMouseEnter={e => e.currentTarget.style.background = '#bae6fd'}
+            onMouseLeave={e => e.currentTarget.style.background = '#e0f2fe'}
+          >
+            Stock Analysis <span style={{ fontSize: 14 }}>→</span>
+          </a>
+        )}
+      </div>
 
       {/* Title */}
-      <div style={{ fontSize: 15, fontWeight: 600, color: '#111', lineHeight: 1.5, marginBottom: 8 }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: '#111', lineHeight: 1.5, marginBottom: 8 }}>
         {cleanTitle}
       </div>
 
-      {/* Summary — plain text */}
+      {/* Summary — plain */}
       {summary && (
         <div style={{ fontSize: 13, color: '#4b5563', lineHeight: 1.65, marginBottom: 8 }}>
           {summary}
@@ -138,6 +167,10 @@ export default function Feed({ user, view, setView }) {
     return () => clearInterval(interval);
   }, [view]);
 
+  const handleWatchlist = (symbol) => {
+    alert(`Added ${symbol} to watchlist!`);
+  };
+
   return (
     <main style={{ background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', padding: '20px 24px', overflowY: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, paddingBottom: 14, borderBottom: '1px solid #e5e7eb' }}>
@@ -157,7 +190,7 @@ export default function Feed({ user, view, setView }) {
         </div>
       )}
 
-      {articles.map(a => <NewsCard key={a.id} a={a} />)}
+      {articles.map(a => <NewsCard key={a.id} a={a} onWatchlist={handleWatchlist} />)}
     </main>
   );
 }
