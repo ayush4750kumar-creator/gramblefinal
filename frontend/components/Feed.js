@@ -26,7 +26,7 @@ export default function Feed({ user, view, setView }) {
   useEffect(() => {
     const fetchNews = () => {
       const params = view === 'feed' ? '' : `&category=${encodeURIComponent(view)}`;
-      fetch(`https://gramblefinal-production.up.railway.app/api/news?limit=60${params}`)
+      fetch(`https://gramblefinal-production.up.railway.app/api/news?limit=200${params}`)
         .then(r => r.json())
         .then(d => {
           const filtered = (d.data || []).filter(a => !isHindi(a.title));
