@@ -15,7 +15,7 @@ import argparse, time
 from datetime import datetime
 from db_utils import migrate
 
-import agentX, agentY, agentZ, agentO, agentP, agentGroq
+import agentX, agentY, agentZ, agentO, agentP, agentGroq, agentH
 
 BANNER = """
 ╔══════════════════════════════════════════════════════╗
@@ -37,6 +37,8 @@ def run_once(process_only: bool = False, fetch_online: bool = False):
     if not process_only:
         t = time.time()
         fetched = agentX.run(parallel=True)
+        h = agentH.run()
+        fetched += h
         print(f"  ⏱  Fetch layer:    {time.time()-t:.1f}s  ({fetched} new articles)")
 
     # ── Layer 2: Tag ──────────────────────────────────────────────────────────
