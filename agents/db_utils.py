@@ -27,6 +27,7 @@ def migrate():
             sentiment_reason TEXT,
             summary_60w     TEXT,
             is_duplicate    BOOLEAN DEFAULT false,
+            is_ready        BOOLEAN DEFAULT false,
             image_url       TEXT,
             created_at      TIMESTAMPTZ DEFAULT NOW()
         );
@@ -51,13 +52,13 @@ def save_articles(articles: list) -> int:
     for a in articles:
         try:
             cur.execute("""
-                INSERT INTO articles (symbol, title, url, source, tag_source_name, published_at, full_text, image_url, tag_feed, agent_source)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                INSERT INTO articles (symbol, title, url, source, tag_source_name, published_at, full_text, image_url, tag_feed, agent_source, is_ready)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (url) DO NOTHING
             """, (
                 a.get('symbol'), a.get('title'), a.get('url'), a.get('source'),
                 a.get('tag_source_name'), a.get('published_at'), a.get('full_text'),
-                a.get('image_url'), a.get('tag_feed','global'), a.get('agent_source')
+                a.get('image_url'), a.get('tag_feed','global'), a.get('agent_source'), False
             ))
             saved += cur.rowcount
         except Exception as e:
