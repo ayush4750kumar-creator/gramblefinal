@@ -200,7 +200,7 @@ def run() -> int:
         [(sym, query, 'topic') for sym, query in GLOBAL_TOPICS]
     )
 
-    with ThreadPoolExecutor(max_workers=20) as ex:
+    with ThreadPoolExecutor(max_workers=5) as ex:
         futures = {}
         for sym, val, task_type in all_tasks:
             if task_type == 'company':
@@ -208,7 +208,7 @@ def run() -> int:
             else:
                 futures[ex.submit(fetch_one_topic, sym, val)] = sym
 
-        for fut in as_completed(futures, timeout=30):
+        for fut in as_completed(futures, timeout=60):
             try:
                 for a in fut.result():
                     if a['url'] not in seen_urls:
