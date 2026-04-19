@@ -1,5 +1,8 @@
 [phases.setup]
 nixPkgs = ["nodejs", "python311", "python311Packages.pip"]
 
+[phases.install]
+cmds = ["npm install", "pip install -r requirements.txt"]
+
 [start]
 cmd = "node backend/server.js & python3 agents/pipeline.py --loop --interval 2"
