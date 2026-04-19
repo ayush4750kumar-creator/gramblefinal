@@ -140,3 +140,27 @@ def fetch_article_text(url: str, timeout=8) -> str:
         return soup.get_text(separator=' ', strip=True)[:4000]
     except Exception:
         return ''
+
+# ── Financial relevance filter ────────────────────────────────────────────────
+FINANCIAL_KEYWORDS = [
+    # Markets
+    "stock", "share", "market", "nifty", "sensex", "bse", "nse", "nasdaq", "dow",
+    "s&p", "nyse", "rally", "surge", "fall", "drop", "gain", "loss", "trade",
+    # Companies
+    "company", "corp", "ltd", "limited", "inc", "earnings", "revenue", "profit",
+    "quarterly", "results", "q1", "q2", "q3", "q4", "ipo", "listing",
+    # Finance
+    "bank", "rbi", "sebi", "fed", "interest rate", "inflation", "gdp", "economy",
+    "investment", "investor", "fund", "mutual fund", "etf", "bond", "rupee",
+    "dollar", "forex", "crude", "oil", "gold", "commodity",
+    # Actions
+    "merger", "acquisition", "buyback", "dividend", "split", "deal", "bid",
+    "upgrade", "downgrade", "target price", "analyst", "rating",
+    # Indian specific
+    "crore", "lakh", "sebi", "nse", "bse", "mcx", "lic", "fii", "dii",
+]
+
+def is_financial(title: str, text: str = "") -> bool:
+    """Return True if article is financially relevant."""
+    combined = (title + " " + (text or "")).lower()
+    return any(kw in combined for kw in FINANCIAL_KEYWORDS)

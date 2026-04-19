@@ -7,7 +7,7 @@ Sources: NSE live, yfinance intraday, TradingView-compatible feeds, Tickertape,
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, HEADERS, COMPANY_MAP
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, HEADERS, is_financial, COMPANY_MAP
 from db_utils import save_articles
 from datetime import datetime
 import requests, time

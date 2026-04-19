@@ -6,7 +6,7 @@ Sources: NSE announcements, BSE after-hours, MoneyControl evening, Reuters eveni
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, HEADERS
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, HEADERS, is_financial
 from db_utils import save_articles
 from datetime import datetime
 import requests, json, time
