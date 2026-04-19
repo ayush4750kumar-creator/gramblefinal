@@ -79,7 +79,7 @@ def run_once():
 
     # ── Layer 4: Groq — only process what's new, no backlog ──────────────────
     t = time.time()
-    articles = get_unprocessed_articles(limit=max(fetched, 10))
+    articles = get_unprocessed_articles(limit=50)
     processed = agentGroq.run(articles)
     print(f"  ⏱  Groq layer:     {time.time()-t:.1f}s  ({processed} processed)")
 
