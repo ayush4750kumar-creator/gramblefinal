@@ -215,10 +215,11 @@ Article: {title}
             # Try Groq first for AI summary
         summary = ""
         if _GROQ_KEY and (title or text):
-            prompt = f"""Summarise this financial news in exactly 60 words or fewer.
-Be factual, mention company names, numbers, and market impact. No fluff. Write only the summary.
-Article: {title}
-{text[:800]}"""
+            prompt = (
+                "Summarise this financial news in exactly 60 words or fewer. "
+                "Be factual, mention company names, numbers, and market impact. No fluff. Write only the summary.\n"
+                f"Article: {title}\n{text[:800]}"
+            )
             summary = groq_call(prompt, max_tokens=100)
 
         # Fallback to extractive if Groq failed
