@@ -128,8 +128,10 @@ def fetch_company_news(symbol: str, name: str, country: str) -> list:
             if not link or not title:
                 continue
             pub = parse_date(e)
+            # Force symbol even if extract_symbol misses it
+            detected = extract_symbol(title) or symbol
             articles.append({
-                'symbol':          symbol,
+                'symbol':          detected,
                 'title':           title,
                 'url':             link,
                 'source':          'Google News',
