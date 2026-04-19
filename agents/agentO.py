@@ -173,7 +173,6 @@ def run(limit: int = 300) -> int:
             'sentiment_label':  label,
             'sentiment_reason': reason,
             # also write to existing 'sentiment' column if it exists (▲/▼)
-            'sentiment': '▲' if label == 'bullish' else ('▼' if label == 'bearish' else '–'),
         })
         counts[label] += 1
 

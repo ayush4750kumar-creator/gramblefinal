@@ -1,139 +1,125 @@
-"""
-db_utils.py — Shared DB layer for the new agent pipeline.
-Reads/writes to the existing stockpulse SQLite DB without breaking anything.
-"""
-import sqlite3, os, json
+import os, psycopg2, psycopg2.extras
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'stockpulse-backend', 'database', 'stockpulse.db')
-
-NEW_COLS = [
-    ("tag_feed",         "TEXT"),    # 'company' | 'global'
-    ("tag_category",     "TEXT"),    # 'news' | 'opinion' | 'analysis' | 'official' | 'after_hours'
-    ("tag_after_hours",  "INTEGER"), # 1 if published outside 9–15:30 IST
-    ("tag_source_name",  "TEXT"),    # clean display name e.g. "Economic Times"
-    ("sentiment_label",  "TEXT"),    # 'bullish' | 'bearish' | 'neutral'
-    ("sentiment_reason", "TEXT"),    # one-line reason
-    ("summary_60w",      "TEXT"),    # ≤ 60 word summary
-    ("agent_source",     "TEXT"),    # which agent fetched it: 'A'..'G'
-    ("is_duplicate",     "INTEGER"), # 1 = deduplicated away
-    ("full_text",        "TEXT"),    # full article body for processing
-]
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return psycopg2.connect(DATABASE_URL, sslmode='require')
 
 def migrate():
-    """Adds new columns to existing news table. Safe to run multiple times."""
     conn = get_conn()
-    c = conn.cursor()
-    c.execute("PRAGMA table_info(news)")
-    existing = {row[1] for row in c.fetchall()}
-    for col, typ in NEW_COLS:
-        if col not in existing:
-            try:
-                c.execute(f"ALTER TABLE news ADD COLUMN {col} {typ}")
-                print(f"  ✅ Added column: {col}")
-            except Exception as e:
-                print(f"  ⚠  {col}: {e}")
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS articles (
+            id              SERIAL PRIMARY KEY,
+            symbol          TEXT,
+            title           TEXT NOT NULL,
+            url             TEXT UNIQUE,
+            source          TEXT,
+            tag_source_name TEXT,
+            published_at    TIMESTAMPTZ,
+            full_text       TEXT,
+            tag_feed        TEXT DEFAULT 'global',
+            tag_category    TEXT DEFAULT 'news',
+            tag_after_hours INTEGER DEFAULT 0,
+            agent_source    TEXT,
+            sentiment_label TEXT,
+            sentiment_reason TEXT,
+            summary_60w     TEXT,
+            is_duplicate    BOOLEAN DEFAULT false,
+            image_url       TEXT,
+            created_at      TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_articles_symbol ON articles(symbol);
+        CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at DESC);
+    """)
     conn.commit()
-    conn.close()
-    print("DB migration complete.")
+    cur.close(); conn.close()
+    print('✅ DB migrated')
 
 def save_articles(articles: list) -> int:
-    """Insert articles. Skips existing URLs. Returns count saved."""
-    if not articles:
-        return 0
+    if not articles: return 0
     conn = get_conn()
-    c = conn.cursor()
-    # discover what columns actually exist so we never crash on schema mismatch
-    c.execute("PRAGMA table_info(news)")
-    existing_cols = {row[1] for row in c.fetchall()}
+    cur = conn.cursor()
     saved = 0
-    for art in articles:
+    for a in articles:
         try:
-            if not art.get('url'):
-                continue
-            c.execute("SELECT id FROM news WHERE url = ?", (art['url'],))
-            if c.fetchone():
-                continue
-            allowed = {k: v for k, v in art.items() if k in existing_cols}
-            cols_str = ', '.join(allowed.keys())
-            placeholders = ', '.join(['?'] * len(allowed))
-            c.execute(f"INSERT INTO news ({cols_str}) VALUES ({placeholders})", list(allowed.values()))
-            saved += 1
+            cur.execute("""
+                INSERT INTO articles (symbol, title, url, source, tag_source_name, published_at, full_text, image_url, tag_feed, agent_source)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (url) DO NOTHING
+            """, (
+                a.get('symbol'), a.get('title'), a.get('url'), a.get('source'),
+                a.get('tag_source_name'), a.get('published_at'), a.get('full_text'),
+                a.get('image_url'), a.get('tag_feed','global'), a.get('agent_source')
+            ))
+            saved += cur.rowcount
         except Exception as e:
-            pass
+            print(f'save error: {e}')
     conn.commit()
-    conn.close()
+    cur.close(); conn.close()
     return saved
 
 def update_article(article_id: int, updates: dict):
+    if not updates: return
     conn = get_conn()
-    c = conn.cursor()
-    if not updates:
-        return
-    set_clause = ', '.join(f"{k} = ?" for k in updates)
-    c.execute(f"UPDATE news SET {set_clause} WHERE id = ?", list(updates.values()) + [article_id])
+    cur = conn.cursor()
+    cols = ', '.join(f"{k}=%s" for k in updates)
+    cur.execute(f"UPDATE articles SET {cols} WHERE id=%s", list(updates.values()) + [article_id])
     conn.commit()
-    conn.close()
+    cur.close(); conn.close()
 
 def get_pending_tag(limit=300):
-    """Articles that haven't been tagged yet by agentY."""
     conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        SELECT id, symbol, title, url, source, published_at, full_text
-        FROM news
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, title, url, source FROM articles
         WHERE (tag_category IS NULL OR tag_category = '')
-          AND (is_duplicate IS NULL OR is_duplicate = 0)
-        ORDER BY published_at DESC LIMIT ?
+        AND (is_duplicate IS NULL OR is_duplicate = false)
+        ORDER BY published_at DESC LIMIT %s
     """, (limit,))
-    rows = [dict(r) for r in c.fetchall()]
-    conn.close()
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
     return rows
 
 def get_pending_dedup(hours=48):
-    """Recent non-duplicate articles for dedup pass."""
     conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        SELECT id, title, summary_60w, full_text, url
-        FROM news
-        WHERE (is_duplicate IS NULL OR is_duplicate = 0)
-          AND datetime(published_at) > datetime('now', ? || ' hours')
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, title, url FROM articles
+        WHERE (is_duplicate IS NULL OR is_duplicate = false)
+        AND published_at >= NOW() - INTERVAL '%s hours'
         ORDER BY published_at DESC
-    """, (f"-{hours}",))
-    rows = [dict(r) for r in c.fetchall()]
-    conn.close()
+    """ % hours)
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
     return rows
 
 def get_pending_sentiment(limit=200):
     conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        SELECT id, title, full_text, symbol, tag_feed
-        FROM news
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, title, full_text, symbol FROM articles
         WHERE (sentiment_label IS NULL OR sentiment_label = '')
-          AND (is_duplicate IS NULL OR is_duplicate = 0)
-        ORDER BY published_at DESC LIMIT ?
+        AND (is_duplicate IS NULL OR is_duplicate = false)
+        ORDER BY published_at DESC LIMIT %s
     """, (limit,))
-    rows = [dict(r) for r in c.fetchall()]
-    conn.close()
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
     return rows
 
 def get_pending_summary(limit=200):
     conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        SELECT id, title, full_text, url
-        FROM news
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, title, full_text, url FROM articles
         WHERE (summary_60w IS NULL OR summary_60w = '')
-          AND (is_duplicate IS NULL OR is_duplicate = 0)
-        ORDER BY published_at DESC LIMIT ?
+        AND (is_duplicate IS NULL OR is_duplicate = false)
+        ORDER BY published_at DESC LIMIT %s
     """, (limit,))
-    rows = [dict(r) for r in c.fetchall()]
-    conn.close()
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
     return rows
+
+def mark_duplicate(article_id: int):
+    update_article(article_id, {'is_duplicate': True})
