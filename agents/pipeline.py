@@ -16,6 +16,7 @@ from datetime import datetime
 from db_utils import migrate
 
 import agentX, agentY, agentZ, agentO, agentP, agentGroq, agentH
+import healthcheck; healthcheck.start()
 
 BANNER = """
 ╔══════════════════════════════════════════════════════╗
