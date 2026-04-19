@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import concurrent.futures, time
 from datetime import datetime
 
-import agentA, agentB, agentC, agentD, agentE, agentF, agentG
+import agentA, agentB, agentC, agentD, agentE, agentF, agentG, agentH
 
 AGENTS = [
     ("A — After-Market Company News",    agentA.run),
@@ -18,6 +18,7 @@ AGENTS = [
     ("E — Political/Global",             agentE.run),
     ("F — Exchange & Market",            agentF.run),
     ("G — Trading Session Live",         agentG.run),
+    ("H — Top Company News",             agentH.run),
 ]
 
 def run(parallel: bool = True) -> int:
