@@ -29,7 +29,7 @@ function timeAgo(dateStr) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-const btnBase = {
+const btnStyle = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
   fontSize: 13, fontWeight: 600,
   padding: '10px 0', borderRadius: 20,
@@ -40,22 +40,22 @@ const btnBase = {
   transition: 'background 0.15s',
 };
 
-function NewsCard({ a, onWatchlist }) {
+function NewsCard({ a, onWatchlist, watchlist }) {
   const s = SENTIMENT[a.sentiment_label] || null;
   const cleanTitle = (a.title || '').replace(/^\[(NSE|BSE|SEC)\]\s*/i, '');
   const cleanSummary = (a.summary_60w || '').replace(/^\[(NSE|BSE|SEC)\]\s*/i, '');
   const summary = !isVader(cleanSummary) && cleanSummary !== cleanTitle && cleanSummary.length > 20 ? cleanSummary : null;
   const reason = !isVader(a.sentiment_reason) ? a.sentiment_reason : null;
   const isCompany = !!a.symbol;
+  const isWatchlisted = watchlist?.find(w => w.symbol === a.symbol);
 
   return (
     <div style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: 20, marginBottom: 20 }}>
 
-      {/* IMAGE — full width with overlays */}
-      <div style={{ width: '100%', height: 200, borderRadius: 12, overflow: 'hidden', marginBottom: 12, position: 'relative' }}>
+      {/* IMAGE */}
+      <div style={{ width: '100%', height: 180, borderRadius: 12, overflow: 'hidden', marginBottom: 12, position: 'relative' }}>
         <img src={PLACEHOLDER} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
 
-        {/* Sentiment badge */}
         {s && (
           <div style={{
             position: 'absolute', top: 12, left: 12,
@@ -67,25 +67,25 @@ function NewsCard({ a, onWatchlist }) {
           </div>
         )}
 
-        {/* + Watchlist button — only for company news */}
         {isCompany && (
           <button
             onClick={() => onWatchlist && onWatchlist(a.symbol)}
             style={{
               position: 'absolute', top: 12, right: 12,
-              background: 'rgba(255,255,255,0.9)',
+              background: isWatchlisted ? '#2563eb' : 'rgba(255,255,255,0.92)',
               border: '1px solid #e5e7eb',
               borderRadius: 6, padding: '4px 10px',
-              fontSize: 11, fontWeight: 600, color: '#374151',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4
+              fontSize: 11, fontWeight: 600,
+              color: isWatchlisted ? '#fff' : '#374151',
+              cursor: 'pointer',
             }}
           >
-            + Watchlist
+            {isWatchlisted ? '✓ Watchlisted' : '+ Watchlist'}
           </button>
         )}
       </div>
 
-      {/* Time + Source */}
+      {/* Meta */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11, fontWeight: 700, background: '#f3f4f6', color: '#374151', padding: '2px 8px', borderRadius: 4 }}>
           {a.symbol || 'Global News'}
@@ -95,21 +95,20 @@ function NewsCard({ a, onWatchlist }) {
         <span style={{ fontSize: 11, color: '#9ca3af' }}>{timeAgo(a.published_at)}</span>
       </div>
 
-      {/* Buttons row */}
+      {/* Buttons */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
         <a
           href={a.url} target="_blank" rel="noreferrer"
-          style={btnBase}
+          style={btnStyle}
           onMouseEnter={e => e.currentTarget.style.background = '#bae6fd'}
           onMouseLeave={e => e.currentTarget.style.background = '#e0f2fe'}
         >
           Read Article <span style={{ fontSize: 15 }}>↗</span>
         </a>
-
         {isCompany && (
           <a
             href={`/stock/${a.symbol}`}
-            style={btnBase}
+            style={btnStyle}
             onMouseEnter={e => e.currentTarget.style.background = '#bae6fd'}
             onMouseLeave={e => e.currentTarget.style.background = '#e0f2fe'}
           >
@@ -123,14 +122,14 @@ function NewsCard({ a, onWatchlist }) {
         {cleanTitle}
       </div>
 
-      {/* Summary — plain */}
+      {/* Summary */}
       {summary && (
         <div style={{ fontSize: 13, color: '#4b5563', lineHeight: 1.65, marginBottom: 8 }}>
           {summary}
         </div>
       )}
 
-      {/* Sentiment reason — colored box */}
+      {/* Sentiment reason */}
       {reason && s && (
         <div style={{
           fontSize: 12, fontStyle: 'italic',
@@ -140,12 +139,11 @@ function NewsCard({ a, onWatchlist }) {
           {reason}
         </div>
       )}
-
     </div>
   );
 }
 
-export default function Feed({ user, view, setView }) {
+export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -167,10 +165,6 @@ export default function Feed({ user, view, setView }) {
     return () => clearInterval(interval);
   }, [view]);
 
-  const handleWatchlist = (symbol) => {
-    alert(`Added ${symbol} to watchlist!`);
-  };
-
   return (
     <main style={{ background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', padding: '20px 24px', overflowY: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, paddingBottom: 14, borderBottom: '1px solid #e5e7eb' }}>
@@ -190,7 +184,9 @@ export default function Feed({ user, view, setView }) {
         </div>
       )}
 
-      {articles.map(a => <NewsCard key={a.id} a={a} onWatchlist={handleWatchlist} />)}
+      {articles.map(a => (
+        <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} />
+      ))}
     </main>
   );
 }
