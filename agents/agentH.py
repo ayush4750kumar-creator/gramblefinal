@@ -192,7 +192,7 @@ def run() -> int:
     seen_urls = set()
 
     all_tasks = (
-        [(sym, name, 'company') for sym, name in TOP_INDIA + TOP_US] +
+        [(sym, name, 'company') for sym, name in TOP_INDIA[:20] + TOP_US[:10]] +
         [(sym, query, 'topic') for sym, query in GLOBAL_TOPICS]
     )
 
