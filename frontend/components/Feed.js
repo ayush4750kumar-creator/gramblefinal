@@ -194,7 +194,10 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
           const srcName = (a.tag_source_name || '').toLowerCase();
           const agentSrc = (a.agent_source || '').toLowerCase();
           const isNSEAnnouncement = src === 'nse_announcements' || srcName === 'nse india' || agentSrc === 'nse' || src === 'nasdaq news' || agentSrc === 'f';
-          return !isHindi(a.title) && !isNSEAnnouncement;
+          const nonFinancialKeywords = ['wrestlemania', 'wwe', 'cricket', 'ipl', 'bollywood', 'movie', 'film', 'celebrity', 'mba admission', 'jnu', 'college admission', 'recipe', 'fashion', 'beauty'];
+          const titleLower = (a.title || '').toLowerCase();
+          const isNonFinancial = nonFinancialKeywords.some(k => titleLower.includes(k));
+          return !isHindi(a.title) && !isNSEAnnouncement && !isNonFinancial;
         });
           setArticles(filtered);
           setLoading(false);
