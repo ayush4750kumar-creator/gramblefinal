@@ -161,7 +161,7 @@ def analyse_article(title: str, text: str) -> tuple:
     """Returns (label, reason) — uses Groq if available, else keyword fallback."""
     combined = (title or '') + ' ' + (text or '')[:800]
 
-    if _GROQ_KEY:
+    if False:  # disabled Groq for speed, using keyword scoring
         prompt = f"""You are a financial analyst. Read this news and respond with ONLY a JSON object.
 Article: {combined[:600]}
 Respond exactly: {{"sentiment": "bullish" or "bearish" or "neutral", "reason": "one sentence max 20 words explaining why"}}"""
