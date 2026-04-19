@@ -1,3 +1,4 @@
+from agentB import fetch_google_news
 """
 agentE.py — Political Leaders & Global Announcements
 Sources: Reuters World, AP News, BBC Business/World, PIB India, ANI, RBI press releases

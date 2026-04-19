@@ -1,3 +1,4 @@
+from agentB import fetch_google_news
 """
 agentG.py — Current Trading Session News
 Runs during market hours (9:15–15:30 IST). Live fluctuations, intraday analysis.

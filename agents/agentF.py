@@ -1,3 +1,4 @@
+from agentB import fetch_google_news
 """
 agentF.py — Official Exchange & Market News
 Sources: NSE India press, NYSE press, NASDAQ news, Wall Street Journal RSS, Financial Times RSS
