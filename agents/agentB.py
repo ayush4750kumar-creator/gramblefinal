@@ -24,6 +24,38 @@ SOURCES = [
     ("Reuters Markets",          "https://feeds.reuters.com/reuters/companyNews"),
 ]
 
+
+def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> list:
+    """Fetch Google News RSS as fallback."""
+    import urllib.parse
+    articles = []
+    try:
+        q = urllib.parse.quote(query)
+        url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
+        entries = fetch_rss(url, f"Google News ({query})")
+        for e in entries[:15]:
+            link = e.get('link', '')
+            title = e.get('title', '')
+            if not link or not title:
+                continue
+            pub = parse_date(e)
+            articles.append({
+                'symbol':          extract_symbol(title),
+                'title':           title,
+                'url':             link,
+                'source':          'Google News',
+                'tag_source_name': 'Google News',
+                'published_at':    pub,
+                'full_text':       clean_html(e.get('summary', '')),
+                'tag_feed':        'global',
+                'tag_category':    category,
+                'agent_source':    agent_source,
+                'tag_after_hours': 0,
+            })
+    except Exception as ex:
+        print(f"  ⚠  Google News ({query}): {ex}")
+    return articles
+
 def fetch_gift_nifty():
     """Fetch GIFT Nifty / SGX Nifty as a news signal using yfinance."""
     articles = []
@@ -109,6 +141,8 @@ def run() -> int:
 
     print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} feeds live, {len(articles)} articles")
 
+    for q in ["India stock market pre-market", "Nifty Sensex today", "Indian economy news today"]:
+        articles += fetch_google_news(q, "B", "analysis")
     gift = fetch_gift_nifty()
     articles += gift
     if gift:

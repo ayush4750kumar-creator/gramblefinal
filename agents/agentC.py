@@ -147,6 +147,8 @@ def run() -> int:
     articles += nse + bse
     print(f"  📡 NSE: {len(nse)} | BSE: {len(bse)} announcements")
 
+    for q in ["India after market stock news", "NSE BSE earnings results today", "Indian stocks after hours"]:
+        articles += fetch_google_news(q, "C", "news")
     saved = save_articles(articles)
     print(f"  ✅ AgentC done — {len(articles)} total, {saved} new saved\n")
     return saved

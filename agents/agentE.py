@@ -109,6 +109,11 @@ def run() -> int:
 
     print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} live, {len(articles)} articles")
 
+    for q in ["RBI policy India economy", "Federal Reserve interest rate", "global trade tariff geopolitics", "India government economic policy"]:
+        gnews = fetch_google_news(q, "E", "official")
+        for a in gnews:
+            if is_global_announcement(a["title"] + " " + a["full_text"]):
+                articles.append(a)
     rbi = fetch_rbi_releases()
     articles += rbi
     print(f"  📡 RBI: {len(rbi)} releases")
