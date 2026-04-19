@@ -24,16 +24,21 @@ export default function Feed({ user, view, setView }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const fetchNews = () => {
+      const params = view === 'feed' ? '' : `&category=${encodeURIComponent(view)}`;
+      fetch(`https://gramblefinal-production.up.railway.app/api/news?limit=60${params}`)
+        .then(r => r.json())
+        .then(d => {
+          const filtered = (d.data || []).filter(a => !isHindi(a.title));
+          setArticles(filtered);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    };
     setLoading(true);
-    const params = view === 'feed' ? '' : `&category=${encodeURIComponent(view)}`;
-    fetch(`https://gramblefinal-production.up.railway.app/api/news?limit=60${params}`)
-      .then(r => r.json())
-      .then(d => {
-        const filtered = (d.data || []).filter(a => !isHindi(a.title));
-        setArticles(filtered);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    fetchNews();
+    const interval = setInterval(fetchNews, 2 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [view]);
 
   return (
