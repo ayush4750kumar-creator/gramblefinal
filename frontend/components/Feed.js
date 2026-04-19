@@ -183,10 +183,6 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  if (view === 'World Exchange') {
-    return <WorldExchangeView setView={setView} onWatchlist={onWatchlist} watchlist={watchlist} />;
-  }
-
   useEffect(() => {
     const fetchNews = () => {
       const params = view === 'feed' ? '' : `&category=${encodeURIComponent(view)}`;
@@ -204,6 +200,10 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     const interval = setInterval(fetchNews, 2 * 60 * 1000);
     return () => clearInterval(interval);
   }, [view]);
+
+  if (view === 'World Exchange') {
+    return <WorldExchangeView setView={setView} onWatchlist={onWatchlist} watchlist={watchlist} />;
+  }
 
   return (
     <main style={{ background:'#f3f4f6', borderRadius:12, padding:'16px 12px', overflowY:'auto' }}>
