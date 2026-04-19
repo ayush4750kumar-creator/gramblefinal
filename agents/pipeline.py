@@ -1,32 +1,46 @@
 """
 pipeline.py — Master Pipeline
-Runs the full chain: AgentX → AgentY → AgentZ → AgentO → AgentP → AgentGroq
+Flow: AgentX (fetch) → AgentY (tag) → AgentZ (dedup) → AgentGroq (sentiment+summary+ready)
+Articles only appear on website after AgentGroq marks them is_ready=true.
 
 Usage:
-  python agents/pipeline.py
   python agents/pipeline.py --loop --interval 5
-  python agents/pipeline.py --process-only
-  python agents/pipeline.py --fetch-online
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import argparse, time
 from datetime import datetime
-from db_utils import migrate
+from db_utils import migrate, get_conn
+import psycopg2.extras
 
-import agentX, agentY, agentZ, agentO, agentP, agentGroq, agentH
+import agentX, agentY, agentZ, agentGroq
 import healthcheck; healthcheck.start()
 
 BANNER = """
 ╔══════════════════════════════════════════════════════╗
 ║         S T A R K  N E W S  P I P E L I N E         ║
-║  X(fetch) → Y(tag) → Z(dedup) → O(sentiment)        ║
-║           → P(summary) → Groq(AI enhance)            ║
+║   X(fetch) → Y(tag) → Z(dedup) → Groq(AI+ready)     ║
 ╚══════════════════════════════════════════════════════╝"""
 
 
-def run_once(process_only: bool = False, fetch_online: bool = False):
+def get_unprocessed_articles(limit=200):
+    """Get articles that haven't been processed by Groq yet."""
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, title, full_text FROM articles
+        WHERE (is_ready IS NULL OR is_ready = false)
+        AND (is_duplicate IS NULL OR is_duplicate = false)
+        ORDER BY created_at DESC
+        LIMIT %s
+    """, (limit,))
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    return rows
+
+
+def run_once():
     ts = datetime.now().strftime('%d %b %Y, %H:%M:%S')
     print(f"\n{'─'*55}")
     print(f"🚀 Pipeline run started: {ts}")
@@ -34,13 +48,10 @@ def run_once(process_only: bool = False, fetch_online: bool = False):
 
     t_total = time.time()
 
-    # ── Layer 1: Fetch ────────────────────────────────────────────────────────
-    if not process_only:
-        t = time.time()
-        fetched = agentX.run(parallel=True)
-        h = agentH.run()
-        fetched += h
-        print(f"  ⏱  Fetch layer:    {time.time()-t:.1f}s  ({fetched} new articles)")
+    # ── Layer 1: Fetch new articles (saved with is_ready=false) ──────────────
+    t = time.time()
+    fetched = agentX.run(parallel=True)
+    print(f"  ⏱  Fetch layer:    {time.time()-t:.1f}s  ({fetched} new articles)")
 
     # ── Layer 2: Tag ──────────────────────────────────────────────────────────
     t = time.time()
@@ -52,25 +63,11 @@ def run_once(process_only: bool = False, fetch_online: bool = False):
     duped = agentZ.run(hours=48)
     print(f"  ⏱  Dedup layer:    {time.time()-t:.1f}s  ({duped} removed)")
 
-    # ── Layer 4: Sentiment (Groq-powered via AgentO) ──────────────────────────
+    # ── Layer 4: Groq — sentiment + summary + mark ready ─────────────────────
     t = time.time()
-    sentimized = agentO.run(limit=500)
-    print(f"  ⏱  Sentiment:      {time.time()-t:.1f}s  ({sentimized} analysed)")
-
-    # ── Layer 5: Summary (Groq-powered via AgentP) ───────────────────────────
-    t = time.time()
-    summarised = agentP.run(limit=500, fetch_online=fetch_online)
-    print(f"  ⏱  Summary:        {time.time()-t:.1f}s  ({summarised} summarised)")
-
-    # ── Layer 6: Mark articles as ready (visible in feed) ────────────────────
-    from db_utils import mark_articles_ready
-    mark_articles_ready()
-    print(f"  ✅ Articles marked ready for feed")
-
-    # ── Layer 7: Groq extra enhancement ──────────────────────────────────────
-    t = time.time()
-    groq_done = agentGroq.run(sentiment_limit=80, summary_limit=80)
-    print(f"  ⏱  Groq extra:     {time.time()-t:.1f}s  ({groq_done} AI-enhanced)")
+    articles = get_unprocessed_articles(limit=200)
+    processed = agentGroq.run(articles)
+    print(f"  ⏱  Groq layer:     {time.time()-t:.1f}s  ({processed} processed)")
 
     elapsed = time.time() - t_total
     print(f"\n✅ Pipeline complete in {elapsed:.1f}s\n")
@@ -80,10 +77,8 @@ def main():
     print(BANNER)
 
     parser = argparse.ArgumentParser(description='Stark News Pipeline')
-    parser.add_argument('--loop',         action='store_true')
-    parser.add_argument('--interval',     type=int, default=5)
-    parser.add_argument('--process-only', action='store_true')
-    parser.add_argument('--fetch-online', action='store_true')
+    parser.add_argument('--loop',     action='store_true')
+    parser.add_argument('--interval', type=int, default=5)
     args = parser.parse_args()
 
     print("\n🗄️  Checking database schema...")
@@ -93,10 +88,7 @@ def main():
         print(f"\n⏰ Loop mode: every {args.interval} minutes. Ctrl+C to stop.\n")
         while True:
             try:
-                run_once(
-                    process_only=args.process_only,
-                    fetch_online=args.fetch_online,
-                )
+                run_once()
                 print(f"💤 Sleeping {args.interval} min...\n")
                 time.sleep(args.interval * 60)
             except KeyboardInterrupt:
@@ -106,10 +98,7 @@ def main():
                 print(f"\n⚠  Pipeline error: {e} — retrying in {args.interval} min")
                 time.sleep(args.interval * 60)
     else:
-        run_once(
-            process_only=args.process_only,
-            fetch_online=args.fetch_online,
-        )
+        run_once()
 
 
 if __name__ == '__main__':
