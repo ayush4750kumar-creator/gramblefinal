@@ -140,9 +140,9 @@ function WorldExchangeView({ setView, onWatchlist, watchlist }) {
   });
 
   return (
-    <main style={{ background:'#f3f4f6', borderRadius:12, padding:'16px 12px', overflowY:'auto' }}>
+    <main style={{ background:'#f3f4f6', borderRadius:12, padding:'0', overflowY:'hidden', display:'flex', flexDirection:'column' }}>
       {/* Header */}
-      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14, padding:'4px 4px 14px', borderBottom:'1px solid #e5e7eb' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0 }}>
         <button onClick={() => setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>
         <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>World Exchange</div>
         {loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>Loading...</span>}
@@ -189,7 +189,12 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
       fetch(`https://gramblefinal-production.up.railway.app/api/news?limit=200${params}`)
         .then(r => r.json())
         .then(d => {
-          const filtered = (d.data || []).filter(a => !isHindi(a.title));
+          const filtered = (d.data || []).filter(a => {
+          const src = (a.source || '').toLowerCase();
+          const agentSrc = (a.agent_source || '').toLowerCase();
+          const isNSEAnnouncement = src.includes('nse_announcement') || agentSrc === 'nse' || src === 'nse_announcements';
+          return !isHindi(a.title) && !isNSEAnnouncement;
+        });
           setArticles(filtered);
           setLoading(false);
         })
@@ -206,8 +211,8 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   }
 
   return (
-    <main style={{ background:'#f3f4f6', borderRadius:12, padding:'16px 12px', overflowY:'auto' }}>
-      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16, padding:'4px 4px 14px', borderBottom:'1px solid #e5e7eb' }}>
+    <main style={{ background:'#f3f4f6', borderRadius:12, padding:'0', overflowY:'hidden', display:'flex', flexDirection:'column' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0 }}>
         {view !== 'feed' && (
           <button onClick={() => setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>
         )}
@@ -222,7 +227,9 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
           <div style={{ fontSize:13, color:'#9ca3af', textAlign:'center', lineHeight:1.7, maxWidth:280 }}>The agents are fetching live market news. Check back in a few minutes.</div>
         </div>
       )}
-      {articles.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} />)}
+      <div style={{ overflowY:'auto', padding:'12px 12px', flex:1 }}>
+        {articles.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} />)}
+      </div>
     </main>
   );
 }
