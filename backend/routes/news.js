@@ -33,7 +33,9 @@ router.get('/', async (req, res) => {
              sentiment_label, sentiment_reason, agent_source
       FROM articles a
       ${where}
-      ORDER BY a.published_at DESC
+      ORDER BY
+        CASE WHEN a.source = 'nse_announcements' THEN 1 ELSE 0 END ASC,
+        a.published_at DESC
       LIMIT $${p++} OFFSET $${p++}
     `, [...params, limit, offset]);
 
