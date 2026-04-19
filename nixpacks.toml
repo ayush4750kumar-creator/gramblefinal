@@ -5,4 +5,4 @@ nixPkgs = ["nodejs", "python311", "python311Packages.pip"]
 cmds = ["npm install", "pip install -r requirements.txt --break-system-packages"]
 
 [start]
-cmd = "node backend/server.js & sleep 15 && python3 agents/pipeline.py --loop --interval 2"
+cmd = "node backend/server.js & sleep 15 ; python3 agents/pipeline.py --loop --interval 2"
