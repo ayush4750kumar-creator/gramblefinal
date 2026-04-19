@@ -89,7 +89,7 @@ def extractive_summary(text, title=''):
         summary = ' '.join(words[:MAX_WORDS]) + '...'
     return summary.strip()
 
-def run(limit=50, fetch_online=False):
+def run(limit=20, fetch_online=False):
     print(f"📝 AgentP — 60-Word Summariser [Groq={'on' if _GROQ_KEY else 'off'}]")
     articles = get_pending_summary(limit)
     if not articles:

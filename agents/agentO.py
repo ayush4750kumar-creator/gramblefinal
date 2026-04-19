@@ -189,7 +189,7 @@ Respond exactly: {{"sentiment": "bullish" or "bearish" or "neutral", "reason": "
     return label, reason
 
 
-def run(limit: int = 300) -> int:
+def run(limit: int = 20) -> int:
     print("📊 AgentO — Sentiment Analyser")
     try:
         articles = get_pending_sentiment(limit)
