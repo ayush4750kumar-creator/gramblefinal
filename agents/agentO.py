@@ -191,7 +191,11 @@ Respond exactly: {{"sentiment": "bullish" or "bearish" or "neutral", "reason": "
 
 def run(limit: int = 300) -> int:
     print("📊 AgentO — Sentiment Analyser")
-    articles = get_pending_sentiment(limit)
+    try:
+        articles = get_pending_sentiment(limit)
+    except Exception as e:
+        print(f"  ❌ AgentO DB error: {e}")
+        return 0
 
     if not articles:
         print("  ℹ  Nothing to analyse.\n")
