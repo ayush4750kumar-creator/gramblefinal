@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 const SENTIMENT = {
   bullish:  { bg:'#dcfce7', color:'#16a34a', label:'Bullish', arrow:'▲' },
@@ -47,7 +47,15 @@ const btnStyle = {
   border:'1.5px solid #bae6fd', cursor:'pointer',
 };
 
-function NewsCard({ a, onWatchlist, watchlist, setView }) {
+function WatchlistToast({ symbol }) {
+  return (
+    <div style={{ position:'fixed', bottom:32, left:'50%', transform:'translateX(-50%)', background:'#1e2433', color:'#fff', padding:'12px 24px', borderRadius:12, fontSize:14, fontWeight:600, zIndex:9999, boxShadow:'0 4px 20px rgba(0,0,0,0.2)', display:'flex', alignItems:'center', gap:10 }}>
+      <span style={{ color:'#34d399' }}>✓</span> {symbol} added to watchlist
+    </div>
+  );
+}
+
+function NewsCard({ a, onWatchlist, watchlist, setView, onWatchlistClick }) {
   const s = SENTIMENT[a.sentiment_label] || null;
   const cleanTitle = (a.title||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
   const cleanSummary = (a.summary_60w||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
@@ -62,7 +70,7 @@ function NewsCard({ a, onWatchlist, watchlist, setView }) {
         <img src={PLACEHOLDER} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
         {s && <div style={{ position:'absolute', top:12, left:12, background:s.color, color:'#fff', fontSize:11, fontWeight:700, padding:'4px 10px', borderRadius:6 }}>{s.arrow} {s.label.toUpperCase()}</div>}
         {isCompany && (
-          <button onClick={() => onWatchlist && onWatchlist(a.symbol)} style={{ position:'absolute', top:12, right:12, background: isWatchlisted ? '#2563eb' : 'rgba(255,255,255,0.92)', border:'1px solid #e5e7eb', borderRadius:6, padding:'4px 10px', fontSize:11, fontWeight:600, color: isWatchlisted ? '#fff' : '#374151', cursor:'pointer' }}>
+          <button onClick={() => onWatchlistClick(a.symbol)} style={{ position:'absolute', top:12, right:12, background: isWatchlisted ? '#2563eb' : 'rgba(255,255,255,0.92)', border:'1px solid #e5e7eb', borderRadius:6, padding:'4px 10px', fontSize:11, fontWeight:600, color: isWatchlisted ? '#fff' : '#374151', cursor:'pointer', transition:'all 0.2s' }}>
             {isWatchlisted ? '✓ Watchlisted' : '+ Watchlist'}
           </button>
         )}
@@ -96,40 +104,66 @@ function NewsCard({ a, onWatchlist, watchlist, setView }) {
   );
 }
 
+function FetchingScreen({ symbol }) {
+  const [dots, setDots] = useState('');
+  useEffect(() => {
+    const t = setInterval(() => setDots(d => d.length >= 3 ? '' : d + '.'), 400);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'70%', gap:16 }}>
+      <div style={{ fontSize:28, fontWeight:800, color:'#111', letterSpacing:'-0.5px' }}>{symbol}</div>
+      <div style={{ width:40, height:40, border:'3px solid #e5e7eb', borderTop:'3px solid #2563eb', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
+      <div style={{ fontSize:14, color:'#6b7280', fontWeight:500 }}>Fetching news{dots}</div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
 export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [exchangeTab, setExchangeTab] = useState('NSE');
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
 
   const isStock = view?.type === 'stock';
   const isExchange = view === 'World Exchange';
 
+  const handleWatchlistClick = (symbol) => {
+    onWatchlist && onWatchlist(symbol);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(symbol);
+    toastTimer.current = setTimeout(() => setToast(null), 2500);
+  };
+
   useEffect(() => {
     setLoading(true);
-    let url = `${API}?limit=200`;
-    if (isStock) url = `${API}?limit=100&symbol=${view.symbol}`;
-    else if (isExchange) url = `${API}?limit=500`;
-    else if (view !== 'feed') url = `${API}?limit=200&category=${encodeURIComponent(view)}`;
+    setArticles([]);
 
-    fetch(url).then(r => r.json()).then(d => {
-      let data = d.data || [];
-      if (!isStock && !isExchange) {
-        const bad = ['wrestlemania','wwe','cricket','ipl','bollywood','celebrity'];
-        data = data.filter(a =>
-          !isHindi(a.title) &&
-          !bad.some(k => (a.title||'').toLowerCase().includes(k))
-        );
-      }
-      setArticles(data);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    const delay = isStock ? 1200 : 0;
 
-    if (!isStock && !isExchange) {
-      const interval = setInterval(() => {
-        fetch(`${API}?limit=200`).then(r=>r.json()).then(d=>setArticles(d.data||[]));
-      }, 2*60*1000);
-      return () => clearInterval(interval);
-    }
+    const timer = setTimeout(() => {
+      let url = `${API}?limit=200`;
+      if (isStock) url = `${API}?limit=100&symbol=${view.symbol}`;
+      else if (isExchange) url = `${API}?limit=500`;
+      else if (view !== 'feed') url = `${API}?limit=200&category=${encodeURIComponent(view)}`;
+
+      fetch(url).then(r => r.json()).then(d => {
+        let data = d.data || [];
+        if (!isStock && !isExchange) {
+          const bad = ['wrestlemania','wwe','cricket','ipl','bollywood','celebrity'];
+          data = data.filter(a =>
+            !isHindi(a.title) &&
+            !bad.some(k => (a.title||'').toLowerCase().includes(k))
+          );
+        }
+        setArticles(data);
+        setLoading(false);
+      }).catch(() => setLoading(false));
+    }, delay);
+
+    return () => clearTimeout(timer);
   }, [view]);
 
   const filteredExchange = isExchange ? articles.filter(a => {
@@ -143,17 +177,19 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
 
   const feedTitle = isStock ? view.symbol : isExchange ? 'World Exchange' : view === 'feed' ? 'Global Feed' : view;
   const displayArticles = isExchange ? filteredExchange : articles;
+  const inWatchlist = isStock && watchlist?.find(w => w.symbol === view.symbol);
 
   return (
     <main style={{ background:'#f3f4f6', borderRadius:12, padding:'0', overflowY:'hidden', display:'flex', flexDirection:'column' }}>
+      {toast && <WatchlistToast symbol={toast} />}
+
       <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0, background:'#fff', borderRadius:'12px 12px 0 0' }}>
         {view !== 'feed' && <button onClick={() => setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>}
         <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>{feedTitle}</div>
-        {loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>Loading...</span>}
         {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>{displayArticles.length} articles</span>}
         {isStock && (
-          <button onClick={() => onWatchlist && onWatchlist(view.symbol)} style={{ marginLeft:'auto', padding:'6px 16px', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer', background: watchlist?.find(w=>w.symbol===view.symbol) ? '#2563eb' : '#eff6ff', color: watchlist?.find(w=>w.symbol===view.symbol) ? '#fff' : '#2563eb', border:'1px solid #bfdbfe' }}>
-            {watchlist?.find(w=>w.symbol===view.symbol) ? '✓ In Watchlist' : '+ Add to Watchlist'}
+          <button onClick={() => handleWatchlistClick(view.symbol)} style={{ marginLeft:'auto', padding:'6px 16px', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer', background: inWatchlist ? '#2563eb' : '#eff6ff', color: inWatchlist ? '#fff' : '#2563eb', border:'1px solid #bfdbfe', transition:'all 0.2s' }}>
+            {inWatchlist ? '✓ In Watchlist' : '+ Add to Watchlist'}
           </button>
         )}
       </div>
@@ -167,13 +203,23 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
       )}
 
       <div style={{ overflowY:'auto', padding:'12px', flex:1 }}>
+        {loading && isStock && <FetchingScreen symbol={view.symbol} />}
+        {loading && !isStock && (
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}>
+            <div style={{ width:36, height:36, border:'3px solid #e5e7eb', borderTop:'3px solid #2563eb', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            <div style={{ fontSize:13, color:'#9ca3af' }}>Loading news...</div>
+          </div>
+        )}
         {!loading && displayArticles.length === 0 && (
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}>
             <div style={{ fontSize:44 }}>📭</div>
             <div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news found</div>
           </div>
         )}
-        {displayArticles.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} />)}
+        {!loading && displayArticles.map(a => (
+          <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} onWatchlistClick={handleWatchlistClick} />
+        ))}
       </div>
     </main>
   );
