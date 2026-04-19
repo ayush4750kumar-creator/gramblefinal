@@ -192,7 +192,12 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
           const filtered = (d.data || []).filter(a => {
           const src = (a.source || '').toLowerCase();
           const agentSrc = (a.agent_source || '').toLowerCase();
-          const isNSEAnnouncement = src.includes('nse_announcement') || agentSrc === 'nse' || src === 'nse_announcements';
+          const isNSEAnnouncement = 
+            src.includes('nse') || 
+            agentSrc.includes('nse') || 
+            srcName.includes('nse india') ||
+            src === 'nse_announcements';
+          const srcName = (a.tag_source_name || '').toLowerCase();
           return !isHindi(a.title) && !isNSEAnnouncement;
         });
           setArticles(filtered);
