@@ -38,6 +38,8 @@ def migrate():
     print('✅ DB migrated')
 
 def save_articles(articles: list) -> int:
+    articles = [a for a in articles if is_financial_article(a.get("title",""), a.get("full_text",""))]
+    if not articles: return 0
     if not articles: return 0
     conn = get_conn()
     cur = conn.cursor()
@@ -154,3 +156,39 @@ def mark_articles_ready():
     finally:
         cur.close()
         conn.close()
+
+# ── Financial relevance filter ────────────────────────────────────────────────
+FINANCIAL_KEYWORDS = [
+    "stock","share","market","nifty","sensex","bse","nse","nasdaq","dow","s&p","nyse",
+    "rally","surge","bull","bear","intraday","trading","52-week","circuit","market cap",
+    "futures","options","f&o","derivative","expiry","open interest","index","indices",
+    "company","corp","ltd","limited","inc","plc","pvt","earnings","revenue","profit",
+    "loss","ebitda","net income","quarterly","annual report","results","q1","q2","q3","q4",
+    "ipo","listing","delisting","merger","acquisition","takeover","buyout","buyback",
+    "dividend","bonus share","stock split","rights issue","board meeting","agm","egm",
+    "shareholding","promoter","stake","joint venture","subsidiary","conglomerate",
+    "bank","banking","nbfc","credit","loan","lending","npa","bad loan","capital adequacy",
+    "rbi","sebi","fed","ecb","central bank","monetary policy","interest rate","repo rate",
+    "inflation","cpi","wpi","gdp","fiscal deficit","current account","trade deficit",
+    "insurance","lic","pension","mutual fund","sip","nav","aum","etf","bond","debenture",
+    "yield","gilt","treasury","rupee","dollar","euro","forex","currency","exchange rate",
+    "crude","oil","brent","wti","opec","natural gas","gold","silver","copper","commodity","mcx",
+    "investment","investor","fii","dii","fpi","institutional","portfolio","wealth",
+    "upgrade","downgrade","target price","analyst","rating","valuation","pe ratio","eps",
+    "broker","brokerage","reliance industries","tata","infosys","wipro","hdfc","icici","sbi",
+    "adani","bajaj","mahindra","maruti","ongc","ntpc","sunpharma","cipla","drreddy",
+    "hcltech","techm","titan","britannia","nestle","itc","hindustan unilever","zomato",
+    "paytm","tesla","apple","microsoft","google","nvidia","amazon","meta","netflix",
+    "jpmorgan","goldman","samsung","tsmc","intel","amd","budget","tax","gst","tariff",
+    "export","import","trade war","trade deal","sanctions","startup","unicorn","funding",
+    "venture capital","private equity","real estate","property","housing","reit",
+    "solar","wind","renewable","ev","electric vehicle","battery","automobile","auto sales",
+    "financial","monetary","fiscal","economic","equity","debt","capital","liquidity",
+    "volatility","risk","return","spread","block deal","bulk deal","insider trading",
+    "results season","earnings season","guidance","outlook","forecast","recession",
+    "rate hike","rate cut","credit rating","moody","fitch","crisil","crore","lakh",
+]
+
+def is_financial_article(title, text=""):
+    combined = (title + " " + (text or "")).lower()
+    return any(kw in combined for kw in FINANCIAL_KEYWORDS)
