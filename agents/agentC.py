@@ -142,6 +142,35 @@ def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> 
         print(f"  Google News ({query}): {ex}")
     return articles
 
+
+def enrich_nse_article(article: dict) -> dict:
+    """Search Google News for the company and enrich the article full_text."""
+    import urllib.parse
+    symbol = article.get('symbol', '')
+    title = article.get('title', '')
+    if not symbol:
+        return article
+    try:
+        # Strip [NSE] prefix for cleaner search
+        clean_title = title.replace('[NSE]', '').strip()
+        query = f"{symbol} NSE India stock {clean_title}"
+        q = urllib.parse.quote(query)
+        url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
+        entries = fetch_rss(url, f"Enrich {symbol}", timeout=5)
+        if entries:
+            # Combine top 3 results as context
+            texts = []
+            for e in entries[:3]:
+                t = e.get('title', '')
+                s = clean_html(e.get('summary', ''))
+                if t:
+                    texts.append(t + '. ' + s)
+            if texts:
+                article['full_text'] = ' '.join(texts)[:1500]
+    except Exception as ex:
+        pass
+    return article
+
 def run() -> int:
     print("🌙 AgentC — After-Session Impact News")
     articles = []
@@ -187,6 +216,13 @@ def run() -> int:
 
     for q in ["NSE BSE earnings results quarterly", "India stock market after hours results", "Indian company quarterly profit revenue"]:
         articles += fetch_google_news(q, "C", "news")
+    # Enrich NSE official filings with Google News context
+    enriched = []
+    for a in articles:
+        if a.get('agent_source') == 'C' and a.get('tag_category') == 'official':
+            a = enrich_nse_article(a)
+        enriched.append(a)
+    articles = enriched
     saved = save_articles(articles)
     print(f"  ✅ AgentC done — {len(articles)} total, {saved} new saved\n")
     return saved
