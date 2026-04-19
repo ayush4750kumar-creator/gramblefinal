@@ -123,3 +123,14 @@ def get_pending_summary(limit=200):
 
 def mark_duplicate(article_id: int):
     update_article(article_id, {'is_duplicate': True})
+
+def delete_old_articles():
+    """Delete articles older than 6 days."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM articles WHERE published_at < NOW() - INTERVAL '6 days'")
+    deleted = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return deleted

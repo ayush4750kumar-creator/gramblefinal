@@ -77,7 +77,7 @@ export default function Feed({ user, view, setView }) {
                   <span style={{ fontSize:11, fontWeight:700, background:s.bg, color:s.color, padding:'2px 8px', borderRadius:4 }}>{s.label}</span>
                 )}
                 <span style={{ fontSize:11, color:'#9ca3af' }}>{a.tag_source_name || a.source}</span>
-                <span style={{ fontSize:11, color:'#9ca3af' }}>{new Date(a.published_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
+                <span style={{ fontSize:11, color:'#9ca3af' }}>{(() => { const diff = Math.floor((Date.now() - new Date(a.published_at)) / 1000); if (diff < 60) return "just now"; if (diff < 3600) return `${Math.floor(diff/60)}m ago`; if (diff < 86400) return `${Math.floor(diff/3600)}h ago`; return `${Math.floor(diff/86400)}d ago`; })()}</span>
               </div>
 
               <a href={a.url} target="_blank" rel="noreferrer"
