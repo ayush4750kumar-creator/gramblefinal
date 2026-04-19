@@ -51,7 +51,7 @@ const btnStyle = {
   border:'1.5px solid #bae6fd', cursor:'pointer',
 };
 
-function NewsCard({ a, onWatchlist, watchlist }) {
+function NewsCard({ a, onWatchlist, watchlist, setView }) {
   const s = SENTIMENT[a.sentiment_label] || null;
   const cleanTitle = (a.title || '').replace(/^\[(NSE|BSE|SEC)\]\s*/i, '');
   const cleanSummary = (a.summary_60w || '').replace(/^\[(NSE|BSE|SEC)\]\s*/i, '');
@@ -96,11 +96,11 @@ function NewsCard({ a, onWatchlist, watchlist }) {
             Read Article <span style={{ fontSize:15 }}>↗</span>
           </a>
           {isCompany && (
-            <a href={`/stock/${a.symbol}`} style={btnStyle}
+            <button onClick={() => setView({ type:'stock', symbol: a.symbol })} style={btnStyle}
               onMouseEnter={e => e.currentTarget.style.background='#bae6fd'}
               onMouseLeave={e => e.currentTarget.style.background='#e0f2fe'}>
               Stock Analysis <span style={{ fontSize:14 }}>→</span>
-            </a>
+            </button>
           )}
         </div>
         <div style={{ fontSize:15, fontWeight:700, color:'#111', lineHeight:1.5, marginBottom:8 }}>{cleanTitle}</div>
@@ -115,6 +115,48 @@ function NewsCard({ a, onWatchlist, watchlist }) {
   );
 }
 
+function StockView({ symbol, setView, onWatchlist, watchlist }) {
+  const [articles, setArticles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const isWatchlisted = watchlist?.find(w => w.symbol === symbol);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`https://gramblefinal-production.up.railway.app/api/news?limit=100&symbol=${symbol}`)
+      .then(r => r.json())
+      .then(d => { setArticles(d.data || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [symbol]);
+
+  return (
+    <main style={{ background:'#f3f4f6', borderRadius:12, padding:'0', overflowY:'hidden', display:'flex', flexDirection:'column' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0, background:'#fff', borderRadius:'12px 12px 0 0' }}>
+        <button onClick={() => setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>
+        <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>{symbol}</div>
+        {loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>Loading...</span>}
+        {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>{articles.length} articles</span>}
+        <button onClick={() => onWatchlist && onWatchlist(symbol)} style={{
+          marginLeft:'auto', padding:'6px 16px', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer',
+          background: isWatchlisted ? '#2563eb' : '#eff6ff',
+          color: isWatchlisted ? '#fff' : '#2563eb',
+          border: isWatchlisted ? 'none' : '1px solid #bfdbfe',
+        }}>
+          {isWatchlisted ? '✓ In Watchlist' : '+ Add to Watchlist'}
+        </button>
+      </div>
+      <div style={{ overflowY:'auto', padding:'12px 12px', flex:1 }}>
+        {!loading && articles.length === 0 && (
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}>
+            <div style={{ fontSize:44 }}>📭</div>
+            <div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news for {symbol}</div>
+          </div>
+        )}
+        {articles.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} />)}
+      </div>
+    </main>
+  );
+}
+
 function WorldExchangeView({ setView, onWatchlist, watchlist }) {
   const [tab, setTab] = useState('NSE');
   const [allArticles, setAllArticles] = useState([]);
@@ -124,10 +166,7 @@ function WorldExchangeView({ setView, onWatchlist, watchlist }) {
     setLoading(true);
     fetch(`https://gramblefinal-production.up.railway.app/api/news?limit=500`)
       .then(r => r.json())
-      .then(d => {
-        setAllArticles(d.data || []);
-        setLoading(false);
-      })
+      .then(d => { setAllArticles(d.data || []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
 
@@ -141,40 +180,29 @@ function WorldExchangeView({ setView, onWatchlist, watchlist }) {
 
   return (
     <main style={{ background:'#f3f4f6', borderRadius:12, padding:'0', overflowY:'hidden', display:'flex', flexDirection:'column' }}>
-      {/* Header */}
       <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0 }}>
         <button onClick={() => setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>
         <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>World Exchange</div>
         {loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>Loading...</span>}
         {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>{filtered.length} articles</span>}
       </div>
-
-      {/* Horizontal exchange tabs */}
       <div style={{ display:'flex', gap:8, marginBottom:16 }}>
         {EXCHANGE_TABS.map(ex => (
-          <button
-            key={ex.key}
-            onClick={() => setTab(ex.key)}
-            style={{
-              padding:'6px 18px', borderRadius:20, fontSize:12, fontWeight:700,
-              border: tab === ex.key ? 'none' : '1.5px solid #e5e7eb',
-              background: tab === ex.key ? ex.color : '#fff',
-              color: tab === ex.key ? '#fff' : '#374151',
-              cursor:'pointer',
-            }}
-          >{ex.label}</button>
+          <button key={ex.key} onClick={() => setTab(ex.key)} style={{
+            padding:'6px 18px', borderRadius:20, fontSize:12, fontWeight:700,
+            border: tab === ex.key ? 'none' : '1.5px solid #e5e7eb',
+            background: tab === ex.key ? ex.color : '#fff',
+            color: tab === ex.key ? '#fff' : '#374151', cursor:'pointer',
+          }}>{ex.label}</button>
         ))}
       </div>
-
       {!loading && filtered.length === 0 && (
         <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}>
           <div style={{ fontSize:44 }}>📭</div>
           <div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No {tab} news found</div>
-          <div style={{ fontSize:13, color:'#9ca3af', textAlign:'center' }}>Check back soon for official {tab} announcements.</div>
         </div>
       )}
-
-      {filtered.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} />)}
+      {filtered.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} />)}
     </main>
   );
 }
@@ -183,6 +211,16 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Stock view
+  if (view?.type === 'stock') {
+    return <StockView symbol={view.symbol} setView={setView} onWatchlist={onWatchlist} watchlist={watchlist} />;
+  }
+
+  // World Exchange view
+  if (view === 'World Exchange') {
+    return <WorldExchangeView setView={setView} onWatchlist={onWatchlist} watchlist={watchlist} />;
+  }
+
   useEffect(() => {
     const fetchNews = () => {
       const params = view === 'feed' ? '' : `&category=${encodeURIComponent(view)}`;
@@ -190,15 +228,15 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
         .then(r => r.json())
         .then(d => {
           const filtered = (d.data || []).filter(a => {
-          const src = (a.source || '').toLowerCase();
-          const srcName = (a.tag_source_name || '').toLowerCase();
-          const agentSrc = (a.agent_source || '').toLowerCase();
-          const isNSEAnnouncement = src === 'nse_announcements' || srcName === 'nse india' || agentSrc === 'nse' || src === 'nasdaq news' || agentSrc === 'f';
-          const nonFinancialKeywords = ['wrestlemania', 'wwe', 'cricket', 'ipl', 'bollywood', 'movie', 'film', 'celebrity', 'mba admission', 'jnu', 'college admission', 'recipe', 'fashion', 'beauty'];
-          const titleLower = (a.title || '').toLowerCase();
-          const isNonFinancial = nonFinancialKeywords.some(k => titleLower.includes(k));
-          return !isHindi(a.title) && !isNSEAnnouncement && !isNonFinancial;
-        });
+            const src = (a.source || '').toLowerCase();
+            const srcName = (a.tag_source_name || '').toLowerCase();
+            const agentSrc = (a.agent_source || '').toLowerCase();
+            const isNSEAnnouncement = src === 'nse_announcements' || srcName === 'nse india' || agentSrc === 'nse' || src === 'nasdaq news' || agentSrc === 'f';
+            const nonFinancialKeywords = ['wrestlemania', 'wwe', 'cricket', 'ipl', 'bollywood', 'movie', 'film', 'celebrity', 'mba admission', 'jnu', 'college admission', 'recipe', 'fashion', 'beauty'];
+            const titleLower = (a.title || '').toLowerCase();
+            const isNonFinancial = nonFinancialKeywords.some(k => titleLower.includes(k));
+            return !isHindi(a.title) && !isNSEAnnouncement && !isNonFinancial;
+          });
           setArticles(filtered);
           setLoading(false);
         })
@@ -209,10 +247,6 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     const interval = setInterval(fetchNews, 2 * 60 * 1000);
     return () => clearInterval(interval);
   }, [view]);
-
-  if (view === 'World Exchange') {
-    return <WorldExchangeView setView={setView} onWatchlist={onWatchlist} watchlist={watchlist} />;
-  }
 
   return (
     <main style={{ background:'#f3f4f6', borderRadius:12, padding:'0', overflowY:'hidden', display:'flex', flexDirection:'column' }}>
@@ -232,7 +266,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
         </div>
       )}
       <div style={{ overflowY:'auto', padding:'12px 12px', flex:1 }}>
-        {articles.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} />)}
+        {articles.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} />)}
       </div>
     </main>
   );
