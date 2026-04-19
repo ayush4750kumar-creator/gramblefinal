@@ -97,14 +97,22 @@ def clean_html(text: str) -> str:
     """Strip HTML tags."""
     return re.sub(r'<[^>]+>', ' ', text or '').strip()
 
-def extract_symbol(text: str) -> str:
-    """Try to match article text to a known company symbol."""
+def extract_symbol(text: str, title: str = '') -> str:
+    """Only tag symbol if article is primarily about one company (found in title)."""
+    title_lower = (title or text or '').lower()[:200]
     text_lower = (text or '').lower()
+    # First try title only — more reliable
+    matches = []
     for symbol, variants in COMPANY_MAP.items():
         for v in variants:
-            if v in text_lower:
-                return symbol
+            if v in title_lower:
+                matches.append(symbol)
+                break
+    # Only tag if exactly one company in title
+    if len(matches) == 1:
+        return matches[0]
     return ''
+''
 
 def is_after_hours(dt_str: str) -> int:
     """Return 1 if the article was published outside 9:00–15:30 IST."""
