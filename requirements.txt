@@ -1,5 +1,7 @@
 psycopg2-binary
 requests
-feedparser
 groq
-python-dotenv
+vaderSentiment
+beautifulsoup4
+lxml
+feedparser
