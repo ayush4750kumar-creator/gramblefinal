@@ -227,7 +227,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
       let url = `${API}?limit=1200`;
       if (isStock) url = `${API}?limit=100&symbol=${view.symbol}`;
       else if (isExchange) url = `${API}?limit=500`;
-      else if (view !== 'feed') url = `${API}?limit=200&category=${encodeURIComponent(view)}`;
+      else if (view !== 'feed') url = `${API}?limit=1200&category=${encodeURIComponent(view)}`;
       fetch(url).then(r => r.json()).then(d => {
         let data = d.data || [];
         if (!isStock && !isExchange) {
