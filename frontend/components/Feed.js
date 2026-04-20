@@ -238,7 +238,12 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
         let data = d.data || [];
         if (!isStock && !isExchange) {
           const bad = ['wrestlemania','wwe','cricket','ipl','bollywood','celebrity'];
-          data = data.filter(a => !isHindi(a.title) && !bad.some(k => (a.title||'').toLowerCase().includes(k)));
+          const allExchangeSources = Object.values(EXCHANGE_SOURCES).flat();
+          data = data.filter(a => {
+            const src = [(a.source||''), (a.tag_source_name||''), (a.agent_source||'')].join(' ').toLowerCase();
+            const isExchangeNews = allExchangeSources.some(s => src.includes(s));
+            return !isExchangeNews && !isHindi(a.title) && !bad.some(k => (a.title||'').toLowerCase().includes(k));
+          });
         }
         setArticles(data);
         setLoading(false);
