@@ -78,6 +78,7 @@ function MobileNewsCard({ a, watchlist, setView, onWatchlistClick }) {
 
   return (
     <div style={{ background:'#fff', borderRadius:16, marginBottom:14, overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.08)' }}>
+
       {/* Image */}
       <div style={{ width:'100%', height:200, position:'relative', overflow:'hidden' }}>
         <img
@@ -109,22 +110,42 @@ function MobileNewsCard({ a, watchlist, setView, onWatchlistClick }) {
       </div>
 
       <div style={{ padding:'12px 14px' }}>
+
         {/* Meta */}
-        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10 }}>
           <span style={{ fontSize:11, color:'#9ca3af' }}>{timeAgo(a.published_at)}</span>
           <span style={{ fontSize:11, color:'#c4c4c4' }}>·</span>
           <span style={{ fontSize:11, color:'#9ca3af', fontWeight:600 }}>{a.tag_source_name || a.source}</span>
         </div>
 
-        {/* Read Article button — FIXED */}
-        
-          href={a.url}
-          target="_blank"
-          rel="noreferrer"
-          style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, width:'100%', padding:'10px', borderRadius:10, background:'#f0f9ff', color:'#0284c7', fontSize:13, fontWeight:600, textDecoration:'none', marginBottom:10, border:'1px solid #bae6fd' }}
-        >
-          Read Article <span style={{ fontSize:14 }}>↗</span>
-        </a>
+        {/* Read Article + Stock Analysis side by side (company) OR Read Article full width (global) */}
+        {isCompany ? (
+          <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+            
+              href={a.url}
+              target="_blank"
+              rel="noreferrer"
+              style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:5, padding:'10px', borderRadius:10, background:'#f0f9ff', color:'#0284c7', fontSize:13, fontWeight:600, textDecoration:'none', border:'1px solid #bae6fd' }}
+            >
+              Read Article ↗
+            </a>
+            <button
+              onClick={() => setView({ type:'stock', symbol: a.symbol })}
+              style={{ flex:1, padding:'10px', borderRadius:10, background:'#f0f9ff', color:'#0284c7', fontSize:13, fontWeight:600, border:'1px solid #bae6fd', cursor:'pointer' }}
+            >
+              Stock Analysis →
+            </button>
+          </div>
+        ) : (
+          
+            href={a.url}
+            target="_blank"
+            rel="noreferrer"
+            style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, width:'100%', padding:'10px', borderRadius:10, background:'#f0f9ff', color:'#0284c7', fontSize:13, fontWeight:600, textDecoration:'none', marginBottom:10, border:'1px solid #bae6fd' }}
+          >
+            Read Article ↗
+          </a>
+        )}
 
         {/* Title */}
         <div style={{ fontSize:15, fontWeight:700, color:'#111', lineHeight:1.5, marginBottom:8 }}>{cleanTitle}</div>
@@ -132,18 +153,13 @@ function MobileNewsCard({ a, watchlist, setView, onWatchlistClick }) {
         {/* Summary */}
         {summary && <div style={{ fontSize:13, color:'#4b5563', lineHeight:1.65, marginBottom:8 }}>{summary}</div>}
 
-        {/* Reason */}
-        {reason && s && <div style={{ fontSize:12, fontStyle:'italic', background:s.bg, color:s.color, padding:'8px 12px', borderRadius:8, lineHeight:1.6, marginBottom:10 }}>{reason}</div>}
-
-        {/* Stock Analysis only — no Dashboard */}
-        {isCompany && (
-          <button
-            onClick={() => setView({ type:'stock', symbol: a.symbol })}
-            style={{ width:'100%', padding:'10px', borderRadius:10, background:'#f0f9ff', color:'#0284c7', fontSize:13, fontWeight:600, border:'1px solid #bae6fd', cursor:'pointer' }}
-          >
-            Stock Analysis →
-          </button>
+        {/* Sentiment reason */}
+        {reason && s && (
+          <div style={{ fontSize:12, fontStyle:'italic', background:s.bg, color:s.color, padding:'8px 12px', borderRadius:8, lineHeight:1.6 }}>
+            {reason}
+          </div>
         )}
+
       </div>
     </div>
   );
