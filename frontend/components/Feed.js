@@ -224,7 +224,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     setArticles([]);
     const delay = isStock ? 1200 : 0;
     const timer = setTimeout(() => {
-      let url = `${API}?limit=200`;
+      let url = `${API}?limit=1200`;
       if (isStock) url = `${API}?limit=100&symbol=${view.symbol}`;
       else if (isExchange) url = `${API}?limit=500`;
       else if (view !== 'feed') url = `${API}?limit=200&category=${encodeURIComponent(view)}`;
