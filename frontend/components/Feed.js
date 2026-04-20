@@ -116,7 +116,7 @@ function MobileNewsCard({ a, watchlist, setView, onWatchlistClick }) {
           <span style={{ fontSize:11, color:'#9ca3af', fontWeight:600 }}>{a.tag_source_name || a.source}</span>
         </div>
 
-        {/* Read Article button */}
+        {/* Read Article button — FIXED */}
         
           href={a.url}
           target="_blank"
