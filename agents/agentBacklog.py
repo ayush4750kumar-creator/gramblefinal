@@ -239,7 +239,7 @@ def run() -> int:
     # Progress every 10s
     start = time.time()
     while any(t.is_alive() for t in threads):
-        time.sleep(10)
+        time.sleep(2.0)
         with lock:
             done = counts["done"] + counts["failed"]
         elapsed = time.time() - start
