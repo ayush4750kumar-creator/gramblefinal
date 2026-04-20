@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { initDB } = require('./config/database');
+const { initDB, pool } = require('./config/database');
 
 const app = express();
 app.use(cors());
@@ -17,7 +17,23 @@ app.get('/', (req, res) => {
   res.json({ success: true, message: 'Gramble API running' });
 });
 
-initDB().then(() => {
+// ── AUTO DELETE ARTICLES OLDER THAN 7 DAYS ──────────────────────────────────
+async function deleteOldArticles() {
+  try {
+    const result = await pool.query(
+      `DELETE FROM articles WHERE published_at < NOW() - INTERVAL '7 days'`
+    );
+    console.log(`🗑️ Deleted ${result.rowCount} articles older than 7 days`);
+  } catch (err) {
+    console.error('Auto-delete error:', err.message);
+  }
+}
+
+// Run once on startup then every 24 hours
+initDB().then(async () => {
+  await deleteOldArticles();
+  setInterval(deleteOldArticles, 24 * 60 * 60 * 1000);
+
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
 }).catch(err => {
