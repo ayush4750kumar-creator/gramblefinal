@@ -74,13 +74,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--loop',     action='store_true')
     parser.add_argument('--interval', type=int, default=3)
-    parser.add_argument('--no-clear', action='store_true')
+    parser.add_argument('--clear', action='store_true')
     args = parser.parse_args()
 
     print("\n🗄️  Checking database schema...")
     migrate()
 
-    if not args.no_clear:
+   if args.clear:
         clear_all_articles()
 
     if args.loop:
