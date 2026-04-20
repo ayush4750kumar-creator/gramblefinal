@@ -80,7 +80,7 @@ def main():
     print("\n🗄️  Checking database schema...")
     migrate()
 
-   if args.clear:
+    if args.clear:
         clear_all_articles()
 
     if args.loop:
