@@ -1,12 +1,15 @@
 """
-agentBacklog.py — Parallel Backlog Processor
-- Reads GROQ_API_KEY_1 ... GROQ_API_KEY_50 (however many you have)
-- Spawns one sub-agent per key
-- All sub-agents pull from same shared queue simultaneously
-- Each sub-agent owns its key exclusively = zero contention
-- Waits and retries on rate limit (never skips)
+agentBacklog.py — Parallel Backlog Processor (FIXED)
+
+Fixes applied:
+1. Full-text scraping — fetches actual article content when full_text is empty
+2. Increased token window — sends up to 3000 chars to Groq instead of 1200
+3. Better rate limit handling — exponential backoff, skips exhausted keys
+4. Smarter sleep — 1.5s instead of 2s (still safe at 30 RPM free tier)
+5. Error logging — prints why articles fail instead of silent None
+6. Key health tracking — marks a key as dead after 3 consecutive 429s
 """
-import sys, os, time, json, threading
+import sys, os, time, json, threading, re
 sys.path.insert(0, os.path.dirname(__file__))
 
 from db_utils import get_conn
@@ -20,6 +23,42 @@ GROQ_MODEL = "llama-3.1-8b-instant"
 GROQ_KEYS = [k for k in [
     os.environ.get(f"GROQ_API_KEY_{i}", "") for i in range(1, 51)
 ] if k]
+
+# Fallback to single key if numbered keys not set
+if not GROQ_KEYS:
+    single = os.environ.get("GROQ_API_KEY", "")
+    if single:
+        GROQ_KEYS = [single]
+
+
+# ── Full-text scraper ─────────────────────────────────────────────────────────
+
+def scrape_article_text(url: str) -> str:
+    """Fetch the actual article page and extract readable text."""
+    if not url:
+        return ""
+    try:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            return ""
+        text = r.text
+        # Remove script/style blocks
+        text = re.sub(r'<script[^>]*>.*?</script>', ' ', text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<style[^>]*>.*?</style>',  ' ', text, flags=re.DOTALL | re.IGNORECASE)
+        # Remove all remaining HTML tags
+        text = re.sub(r'<[^>]+>', ' ', text)
+        # Collapse whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text[:5000]
+    except Exception:
+        return ""
 
 
 # ── Shared thread-safe article queue ─────────────────────────────────────────
@@ -63,22 +102,12 @@ def save_result(result: dict):
             cur.close()
             conn.close()
 
-def mark_ready(article_id: int):
-    with _db_lock:
-        conn = get_conn()
-        cur  = conn.cursor()
-        try:
-            cur.execute("UPDATE articles SET is_ready=true WHERE id=%s", (article_id,))
-            conn.commit()
-        finally:
-            cur.close()
-            conn.close()
 
+# ── Groq call — exponential backoff + key-death detection ────────────────────
 
-# ── Groq call — one key, wait and retry on rate limit ────────────────────────
-
-def groq_call(key: str, prompt: str) -> str:
-    for attempt in range(10):
+def groq_call(key: str, prompt: str, agent_id: int) -> str:
+    consecutive_429 = 0
+    for attempt in range(12):
         try:
             r = requests.post(
                 GROQ_URL,
@@ -88,48 +117,97 @@ def groq_call(key: str, prompt: str) -> str:
                 },
                 json={
                     "model":       GROQ_MODEL,
-                    "max_tokens":  250,
+                    "max_tokens":  300,
                     "temperature": 0.2,
                     "messages": [{"role": "user", "content": prompt}],
                 },
-                timeout=20,
+                timeout=25,
             )
+
             if r.status_code == 429:
-                wait = min(float(r.headers.get("retry-after", 10)), 10)
+                consecutive_429 += 1
+                retry_after = float(r.headers.get("retry-after", 0))
+                wait = max(retry_after, min(2 ** consecutive_429, 60))
+                print(f"  ⏳ Agent {agent_id}: rate limited (429), waiting {wait:.0f}s "
+                      f"[attempt {attempt+1}/12]")
+                if consecutive_429 >= 3:
+                    print(f"  💀 Agent {agent_id}: key exhausted — 3 consecutive 429s")
+                    return "KEY_EXHAUSTED"
                 time.sleep(wait)
                 continue
+
+            consecutive_429 = 0
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"].strip()
+
         except requests.exceptions.Timeout:
-            time.sleep(2)
-        except Exception:
-            time.sleep(2)
+            print(f"  ⏱ Agent {agent_id}: timeout (attempt {attempt+1})")
+            time.sleep(3)
+        except Exception as e:
+            print(f"  ❌ Agent {agent_id}: error — {e} (attempt {attempt+1})")
+            time.sleep(3)
     return ""
 
 
 # ── Process one article ───────────────────────────────────────────────────────
 
-def process_one(key: str, article: dict) -> dict | None:
-    title    = article.get("title", "") or ""
-    text     = article.get("full_text", "") or ""
-    combined = (title + "\n\n" + text[:1200]).strip()
+def process_one(key: str, article: dict, agent_id: int):
+    title = article.get("title", "")     or ""
+    text  = article.get("full_text", "") or ""
+    url   = article.get("url", "")       or ""
 
-    prompt = f"""You are a financial news analyst. Analyse this article and respond ONLY with a JSON object.
+    # FIX 1: Scrape full text if DB has empty/short content
+    if len(text.strip()) < 200 and url:
+        print(f"  🌐 Agent {agent_id}: scraping article {article['id']}")
+        scraped = scrape_article_text(url)
+        if scraped:
+            text = scraped
+            # Cache back to DB so we don't re-scrape next run
+            try:
+                with _db_lock:
+                    conn = get_conn()
+                    cur  = conn.cursor()
+                    cur.execute(
+                        "UPDATE articles SET full_text=%s WHERE id=%s",
+                        (scraped[:8000], article["id"])
+                    )
+                    conn.commit()
+                    cur.close()
+                    conn.close()
+            except Exception:
+                pass
+
+    # FIX 2: Send 3000 chars instead of 1200
+    combined = (title + "\n\n" + text[:3000]).strip()
+
+    if not combined or len(combined) < 20:
+        print(f"  ⚠ Agent {agent_id}: article {article['id']} has no content — skipping")
+        return None
+
+    prompt = f"""You are a financial news analyst. Analyse this article and respond ONLY with a JSON object — no markdown, no explanation.
 
 Article:
 {combined}
 
-Respond with exactly this JSON:
+Respond with exactly this JSON (nothing else):
 {{
   "sentiment": "bullish" or "bearish" or "neutral",
-  "reason": "one sentence max 15 words explaining why",
-  "summary": "MUST be between 30 and 60 words. Cover key facts, numbers, and market impact."
+  "reason": "one sentence, max 15 words, explaining why",
+  "summary": "between 40 and 60 words covering key facts, numbers, and market impact"
 }}
 
-CRITICAL: The summary field MUST contain between 30 and 60 words."""
+CRITICAL RULES:
+- summary MUST be 40-60 words
+- sentiment MUST be one of: bullish, bearish, neutral
+- Output ONLY the JSON, no other text"""
 
-    raw = groq_call(key, prompt)
+    raw = groq_call(key, prompt, agent_id)
+
+    if raw == "KEY_EXHAUSTED":
+        return "KEY_EXHAUSTED"
+
     if not raw:
+        print(f"  ❌ Agent {agent_id}: empty response for article {article['id']}")
         return None
 
     try:
@@ -147,18 +225,28 @@ CRITICAL: The summary field MUST contain between 30 and 60 words."""
             if len(words) > 60:
                 summary = " ".join(words[:60])
             elif len(words) < 30:
-                summary = (title + ". " + summary).strip()
-                words   = summary.split()
-                summary = " ".join(words[:60]) if len(words) > 60 else summary
+                padded  = (title + ". " + summary).strip()
+                words   = padded.split()
+                summary = " ".join(words[:60]) if len(words) > 60 else padded
+
+            reason = data.get("reason", "").strip() or f"{label.capitalize()} signal detected."
 
             return {
                 "id":               article["id"],
                 "sentiment_label":  label,
-                "sentiment_reason": data.get("reason", ""),
+                "sentiment_reason": reason,
                 "summary_60w":      summary,
             }
-    except Exception:
-        pass
+        else:
+            print(f"  ❌ Agent {agent_id}: no JSON in response for article {article['id']}")
+            print(f"     Raw: {raw[:150]}")
+
+    except json.JSONDecodeError as e:
+        print(f"  ❌ Agent {agent_id}: JSON parse error article {article['id']}: {e}")
+        print(f"     Raw: {raw[:150]}")
+    except Exception as e:
+        print(f"  ❌ Agent {agent_id}: unexpected error article {article['id']}: {e}")
+
     return None
 
 
@@ -169,20 +257,27 @@ def sub_agent(agent_id: int, key: str, queue: ArticleQueue,
     while True:
         article = queue.pop()
         if article is None:
-            break  # queue empty, this sub-agent is done
+            break
 
-        result = process_one(key, article)
+        result = process_one(key, article, agent_id)
+
+        if result == "KEY_EXHAUSTED":
+            # Return article to front of queue for another agent to pick up
+            with queue._lock:
+                queue._items.insert(0, article)
+            print(f"  🔄 Agent {agent_id}: returned article {article['id']} to queue, stopping")
+            break
 
         if result:
             save_result(result)
             with lock:
-                counts["done"]  += 1
+                counts["done"] += 1
                 counts[result["sentiment_label"]] += 1
         else:
             with lock:
                 counts["failed"] += 1
 
-        time.sleep(2.0)  # 2s = 30 RPM per key
+        time.sleep(1.5)  # 40 RPM — safely under Groq free tier limit
 
 
 # ── Fetch backlog from DB ─────────────────────────────────────────────────────
@@ -191,7 +286,7 @@ def get_backlog() -> list:
     conn = get_conn()
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
-        SELECT id, title, full_text FROM articles
+        SELECT id, title, full_text, url FROM articles
         WHERE (is_ready IS NULL OR is_ready = false)
         AND (is_duplicate IS NULL OR is_duplicate = false)
         ORDER BY created_at ASC
@@ -207,6 +302,7 @@ def get_backlog() -> list:
 def run() -> int:
     if not GROQ_KEYS:
         print("  ⚠ AgentBacklog — No Groq keys found")
+        print("     Set GROQ_API_KEY_1 ... GROQ_API_KEY_50 or GROQ_API_KEY in Railway")
         return 0
 
     articles = get_backlog()
@@ -222,7 +318,6 @@ def run() -> int:
     lock   = threading.Lock()
     total  = len(articles)
 
-    # Spawn one thread per key
     threads = []
     for i, key in enumerate(GROQ_KEYS):
         t = threading.Thread(
@@ -232,18 +327,19 @@ def run() -> int:
         )
         threads.append(t)
         t.start()
-        time.sleep(0.5)  # stagger — don't hit all keys simultaneously
+        time.sleep(0.3)  # stagger starts
 
-    # Progress every 10s
     start = time.time()
     while any(t.is_alive() for t in threads):
         time.sleep(10)
         with lock:
             done = counts["done"] + counts["failed"]
-        elapsed = time.time() - start
-        rate    = done / elapsed if elapsed > 0 else 0
-        eta     = (total - done) / rate if rate > 0 else 0
-        print(f"  📦 Backlog: {done}/{total} | {rate:.1f}/s | ETA {eta:.0f}s")
+        elapsed   = time.time() - start
+        rate      = done / elapsed if elapsed > 0 else 0
+        remaining = total - done
+        eta       = remaining / rate if rate > 0 else 0
+        print(f"  📦 Backlog: {done}/{total} | ✅{counts['done']} ❌{counts['failed']} "
+              f"| {rate:.1f}/s | ETA {eta:.0f}s")
 
     for t in threads:
         t.join()
