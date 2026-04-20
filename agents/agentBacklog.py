@@ -179,12 +179,10 @@ def sub_agent(agent_id: int, key: str, queue: ArticleQueue,
                 counts["done"]  += 1
                 counts[result["sentiment_label"]] += 1
         else:
-            mark_ready(article["id"])
             with lock:
                 counts["failed"] += 1
 
-        # 2s delay = 30 RPM per key, exactly at free tier limit
-        pass  # no sleep needed — each agent owns its key exclusively
+        time.sleep(2.0)  # 2s = 30 RPM per key
 
 
 # ── Fetch backlog from DB ─────────────────────────────────────────────────────
@@ -239,7 +237,7 @@ def run() -> int:
     # Progress every 10s
     start = time.time()
     while any(t.is_alive() for t in threads):
-        time.sleep(2.0)
+        time.sleep(10)
         with lock:
             done = counts["done"] + counts["failed"]
         elapsed = time.time() - start
