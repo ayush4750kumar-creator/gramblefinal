@@ -32,9 +32,15 @@ function isVader(text) {
   if (!text) return true;
   return text.toLowerCase().includes('vader') || text.toLowerCase().includes('compound score');
 }
+
+// FIXED: handles timezone offset and null dates
 function timeAgo(dateStr) {
-  const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
-  if (diff < 60) return 'just now';
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return '';
+  const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (diff < 0) return 'just now';
+  if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
   return `${Math.floor(diff/86400)}d ago`;
