@@ -95,7 +95,7 @@ def groq_call(key: str, prompt: str) -> str:
                 timeout=20,
             )
             if r.status_code == 429:
-                wait = float(r.headers.get("retry-after", 30))
+                wait = min(float(r.headers.get("retry-after", 10)), 10)
                 time.sleep(wait)
                 continue
             r.raise_for_status()
@@ -234,6 +234,7 @@ def run() -> int:
         )
         threads.append(t)
         t.start()
+        time.sleep(0.5)  # stagger — don't hit all keys simultaneously
 
     # Progress every 10s
     start = time.time()
