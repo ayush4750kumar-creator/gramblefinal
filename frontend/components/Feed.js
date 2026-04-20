@@ -78,7 +78,7 @@ function MobileNewsCard({ a, watchlist, setView, onWatchlistClick }) {
   const cleanSummary = (a.summary_60w||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
   const summary = !isVader(cleanSummary) && cleanSummary !== cleanTitle && cleanSummary.length > 20 ? cleanSummary : null;
   const reason = !isVader(a.sentiment_reason) ? a.sentiment_reason : null;
-  const isCompany = !!a.symbol;
+  const isCompany = !!a.symbol && a.symbol !== 'MARKET';
   const isWatchlisted = watchlist?.find(w => w.symbol === a.symbol);
 
   return (
@@ -130,7 +130,7 @@ function NewsCard({ a, onWatchlist, watchlist, setView, onWatchlistClick }) {
   const cleanSummary = (a.summary_60w||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
   const summary = !isVader(cleanSummary) && cleanSummary !== cleanTitle && cleanSummary.length > 20 ? cleanSummary : null;
   const reason = !isVader(a.sentiment_reason) ? a.sentiment_reason : null;
-  const isCompany = !!a.symbol;
+  const isCompany = !!a.symbol && a.symbol !== 'MARKET';
   const isWatchlisted = watchlist?.find(w => w.symbol === a.symbol);
 
   return (
