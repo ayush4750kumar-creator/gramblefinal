@@ -117,7 +117,7 @@ function MobileNewsCard({ a, watchlist, setView, onWatchlistClick }) {
         </div>
 
         {/* Read Article button */}
-        <a
+        
           href={a.url}
           target="_blank"
           rel="noreferrer"
@@ -135,29 +135,21 @@ function MobileNewsCard({ a, watchlist, setView, onWatchlistClick }) {
         {/* Reason */}
         {reason && s && <div style={{ fontSize:12, fontStyle:'italic', background:s.bg, color:s.color, padding:'8px 12px', borderRadius:8, lineHeight:1.6, marginBottom:10 }}>{reason}</div>}
 
-        {/* Stock Analysis + Dashboard buttons */}
+        {/* Stock Analysis only — no Dashboard */}
         {isCompany && (
-          <div style={{ display:'flex', gap:8 }}>
-            <button
-              onClick={() => setView({ type:'stock', symbol: a.symbol })}
-              style={{ flex:1, padding:'10px', borderRadius:10, background:'#f0f9ff', color:'#0284c7', fontSize:13, fontWeight:600, border:'1px solid #bae6fd', cursor:'pointer' }}
-            >
-              Stock Analysis →
-            </button>
-            <button
-              onClick={() => setView({ type:'stock', symbol: a.symbol })}
-              style={{ flex:1, padding:'10px', borderRadius:10, background:'#111', color:'#fff', fontSize:13, fontWeight:600, border:'none', cursor:'pointer' }}
-            >
-              Dashboard
-            </button>
-          </div>
+          <button
+            onClick={() => setView({ type:'stock', symbol: a.symbol })}
+            style={{ width:'100%', padding:'10px', borderRadius:10, background:'#f0f9ff', color:'#0284c7', fontSize:13, fontWeight:600, border:'1px solid #bae6fd', cursor:'pointer' }}
+          >
+            Stock Analysis →
+          </button>
         )}
       </div>
     </div>
   );
 }
 
-// ── DESKTOP CARD (unchanged) ──────────────────────────────────────────────────
+// ── DESKTOP CARD ──────────────────────────────────────────────────────────────
 function NewsCard({ a, onWatchlist, watchlist, setView, onWatchlistClick }) {
   const s = SENTIMENT[a.sentiment_label] || null;
   const cleanTitle = (a.title||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
@@ -241,11 +233,6 @@ function MobileHeader({ feedTitle, articleCount, isStock, view, setView, watchli
               style={{ padding:'7px 14px', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', background: inWatchlist ? '#2563eb' : '#f3f4f6', color: inWatchlist ? '#fff' : '#374151', border:'none' }}
             >
               {inWatchlist ? '✓ Watchlisted' : '+ Watchlist'}
-            </button>
-            <button
-              style={{ padding:'7px 14px', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', background:'#111', color:'#fff', border:'none' }}
-            >
-              Dashboard
             </button>
           </div>
         )}
@@ -360,7 +347,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     );
   }
 
-  // ── DESKTOP LAYOUT (unchanged) ──────────────────────────────────────────────
+  // ── DESKTOP LAYOUT ──────────────────────────────────────────────────────────
   return (
     <main style={{ background:'#f3f4f6', borderRadius:12, padding:'0', overflowY:'hidden', display:'flex', flexDirection:'column' }}>
       {toast && <WatchlistToast symbol={toast} />}

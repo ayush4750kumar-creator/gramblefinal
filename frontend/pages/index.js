@@ -40,20 +40,20 @@ export default function Home() {
           padding: '10px 14px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 8,
+          gap: 10,
           flexShrink: 0,
           zIndex: 20,
         }}>
 
-          {/* Row 1: App name + Account */}
+          {/* Row 1: Logo + Account */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span
               onClick={() => setView('feed')}
-              style={{ fontSize: 20, fontWeight: 800, color: '#111', letterSpacing: '-0.5px', cursor: 'pointer' }}
+              style={{ fontSize: 22, fontWeight: 900, color: '#111', letterSpacing: '-0.5px', cursor: 'pointer', fontFamily: 'Georgia, serif' }}
             >
-              📈 Gramble
+              gramble<span style={{ color: '#2563eb' }}>.in</span>
             </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {user ? (
                 <div style={{
                   width: 32, height: 32, borderRadius: '50%',
@@ -67,28 +67,29 @@ export default function Home() {
                 <button
                   onClick={() => alert('Login coming soon')}
                   style={{
-                    padding: '6px 14px', borderRadius: 8,
-                    background: '#2563eb', color: '#fff',
-                    fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '7px 16px', borderRadius: 20,
+                    border: '1.5px solid #2563eb', background: '#fff',
+                    color: '#2563eb', fontSize: 13, fontWeight: 600, cursor: 'pointer',
                   }}
                 >
-                  Login
+                  <span>👤</span> Account
                 </button>
               )}
             </div>
           </div>
 
-          {/* Row 2: Search */}
+          {/* Row 2: Search pill */}
           <div style={{ position: 'relative' }}>
             <span style={{
-              position: 'absolute', left: 10, top: '50%',
+              position: 'absolute', left: 12, top: '50%',
               transform: 'translateY(-50%)', fontSize: 14, color: '#9ca3af'
             }}>🔍</span>
             <input
-              placeholder="Search stocks, news..."
+              placeholder="Search an equity, index..."
               style={{
-                width: '100%', padding: '8px 12px 8px 32px',
-                borderRadius: 10, border: '1px solid #e5e7eb',
+                width: '100%', padding: '9px 14px 9px 34px',
+                borderRadius: 24, border: '1.5px solid #e5e7eb',
                 fontSize: 13, background: '#f9fafb', color: '#111',
                 outline: 'none', boxSizing: 'border-box',
               }}
@@ -101,25 +102,41 @@ export default function Home() {
           </div>
 
           {/* Row 3: Watchlist chips */}
-          {watchlist.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
-              {watchlist.map(w => (
-                <button
-                  key={w.symbol}
-                  onClick={() => setView({ type: 'stock', symbol: w.symbol })}
-                  style={{
-                    padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                    background: view?.symbol === w.symbol ? '#2563eb' : '#eff6ff',
-                    color: view?.symbol === w.symbol ? '#fff' : '#2563eb',
-                    border: '1px solid #bfdbfe', cursor: 'pointer',
-                    whiteSpace: 'nowrap', flexShrink: 0,
-                  }}
-                >
-                  {w.symbol}
-                </button>
-              ))}
-            </div>
-          )}
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+            <button
+              onClick={() => setView('feed')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '6px 16px', borderRadius: 24, fontSize: 13, fontWeight: 700,
+                background: view === 'feed' ? '#111' : '#f3f4f6',
+                color: view === 'feed' ? '#fff' : '#374151',
+                border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+              }}
+            >
+              Global
+            </button>
+
+            {watchlist.map(w => (
+              <button
+                key={w.symbol}
+                onClick={() => setView({ type: 'stock', symbol: w.symbol })}
+                style={{
+                  padding: '6px 16px', borderRadius: 24, fontSize: 13, fontWeight: 700,
+                  background: view?.symbol === w.symbol ? '#111' : '#f3f4f6',
+                  color: view?.symbol === w.symbol ? '#fff' : '#374151',
+                  border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                }}
+              >
+                {w.symbol}
+              </button>
+            ))}
+
+            <button style={{
+              width: 36, height: 36, borderRadius: '50%', border: '1.5px solid #e5e7eb',
+              background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 15, cursor: 'pointer', flexShrink: 0,
+            }}>🔍</button>
+          </div>
         </div>
 
         {/* Feed */}
@@ -130,7 +147,6 @@ export default function Home() {
     );
   }
 
-  // Desktop
   return (
     <div style={{ display: 'grid', gridTemplateRows: '58px 1fr', height: '100vh', overflow: 'hidden', background: '#f3f4f6' }}>
       <Navbar user={user} onLogin={setUser} onLogoClick={() => setView('feed')} />
