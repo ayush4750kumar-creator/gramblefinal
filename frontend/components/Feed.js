@@ -40,6 +40,17 @@ function timeAgo(dateStr) {
   return `${Math.floor(diff/86400)}d ago`;
 }
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+  return isMobile;
+}
+
 const btnStyle = {
   display:'flex', alignItems:'center', justifyContent:'center', gap:6,
   fontSize:13, fontWeight:600, padding:'10px 0', borderRadius:20,
@@ -55,6 +66,98 @@ function WatchlistToast({ symbol }) {
   );
 }
 
+// ── MOBILE CARD ───────────────────────────────────────────────────────────────
+function MobileNewsCard({ a, watchlist, setView, onWatchlistClick }) {
+  const s = SENTIMENT[a.sentiment_label] || null;
+  const cleanTitle = (a.title||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
+  const cleanSummary = (a.summary_60w||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
+  const summary = !isVader(cleanSummary) && cleanSummary !== cleanTitle && cleanSummary.length > 20 ? cleanSummary : null;
+  const reason = !isVader(a.sentiment_reason) ? a.sentiment_reason : null;
+  const isCompany = !!a.symbol;
+  const isWatchlisted = watchlist?.find(w => w.symbol === a.symbol);
+
+  return (
+    <div style={{ background:'#fff', borderRadius:16, marginBottom:14, overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.08)' }}>
+      {/* Image */}
+      <div style={{ width:'100%', height:200, position:'relative', overflow:'hidden' }}>
+        <img
+          src={a.image_url || PLACEHOLDER}
+          alt=""
+          style={{ width:'100%', height:'100%', objectFit:'cover' }}
+          onError={e => { e.target.src = PLACEHOLDER; }}
+        />
+        {/* Category badge */}
+        <div style={{ position:'absolute', bottom:10, left:10, background:'rgba(0,0,0,0.65)', color:'#fff', fontSize:10, fontWeight:700, padding:'4px 10px', borderRadius:6, letterSpacing:0.5 }}>
+          <div style={{ fontSize:9, opacity:0.8 }}>{a.tag_category?.toUpperCase() || 'MARKET'}</div>
+          <div>{a.symbol || 'Global News'}</div>
+        </div>
+        {/* Sentiment badge */}
+        {s && (
+          <div style={{ position:'absolute', top:10, left:10, background:s.color, color:'#fff', fontSize:10, fontWeight:700, padding:'4px 10px', borderRadius:6 }}>
+            {s.arrow} {s.label.toUpperCase()}
+          </div>
+        )}
+        {/* Watchlist button */}
+        {isCompany && (
+          <button
+            onClick={() => onWatchlistClick(a.symbol)}
+            style={{ position:'absolute', top:10, right:10, background: isWatchlisted ? '#2563eb' : 'rgba(255,255,255,0.92)', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700, color: isWatchlisted ? '#fff' : '#374151', cursor:'pointer' }}
+          >
+            {isWatchlisted ? '✓ Watchlisted' : '+ Watchlist'}
+          </button>
+        )}
+      </div>
+
+      <div style={{ padding:'12px 14px' }}>
+        {/* Meta */}
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+          <span style={{ fontSize:11, color:'#9ca3af' }}>{timeAgo(a.published_at)}</span>
+          <span style={{ fontSize:11, color:'#c4c4c4' }}>·</span>
+          <span style={{ fontSize:11, color:'#9ca3af', fontWeight:600 }}>{a.tag_source_name || a.source}</span>
+        </div>
+
+        {/* Read Article button */}
+        <a
+          href={a.url}
+          target="_blank"
+          rel="noreferrer"
+          style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, width:'100%', padding:'10px', borderRadius:10, background:'#f0f9ff', color:'#0284c7', fontSize:13, fontWeight:600, textDecoration:'none', marginBottom:10, border:'1px solid #bae6fd' }}
+        >
+          Read Article <span style={{ fontSize:14 }}>↗</span>
+        </a>
+
+        {/* Title */}
+        <div style={{ fontSize:15, fontWeight:700, color:'#111', lineHeight:1.5, marginBottom:8 }}>{cleanTitle}</div>
+
+        {/* Summary */}
+        {summary && <div style={{ fontSize:13, color:'#4b5563', lineHeight:1.65, marginBottom:8 }}>{summary}</div>}
+
+        {/* Reason */}
+        {reason && s && <div style={{ fontSize:12, fontStyle:'italic', background:s.bg, color:s.color, padding:'8px 12px', borderRadius:8, lineHeight:1.6, marginBottom:10 }}>{reason}</div>}
+
+        {/* Stock Analysis + Dashboard buttons */}
+        {isCompany && (
+          <div style={{ display:'flex', gap:8 }}>
+            <button
+              onClick={() => setView({ type:'stock', symbol: a.symbol })}
+              style={{ flex:1, padding:'10px', borderRadius:10, background:'#f0f9ff', color:'#0284c7', fontSize:13, fontWeight:600, border:'1px solid #bae6fd', cursor:'pointer' }}
+            >
+              Stock Analysis →
+            </button>
+            <button
+              onClick={() => setView({ type:'stock', symbol: a.symbol })}
+              style={{ flex:1, padding:'10px', borderRadius:10, background:'#111', color:'#fff', fontSize:13, fontWeight:600, border:'none', cursor:'pointer' }}
+            >
+              Dashboard
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── DESKTOP CARD (unchanged) ──────────────────────────────────────────────────
 function NewsCard({ a, onWatchlist, watchlist, setView, onWatchlistClick }) {
   const s = SENTIMENT[a.sentiment_label] || null;
   const cleanTitle = (a.title||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
@@ -67,7 +170,7 @@ function NewsCard({ a, onWatchlist, watchlist, setView, onWatchlistClick }) {
   return (
     <div style={{ background:'#fff', borderRadius:14, border:'1px solid #e5e7eb', boxShadow:'0 2px 8px rgba(0,0,0,0.06)', marginBottom:16, overflow:'hidden' }}>
       <div style={{ width:'100%', height:180, position:'relative', overflow:'hidden' }}>
-        <img src={PLACEHOLDER} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+        <img src={a.image_url || PLACEHOLDER} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} onError={e => { e.target.src = PLACEHOLDER; }} />
         {s && <div style={{ position:'absolute', top:12, left:12, background:s.color, color:'#fff', fontSize:11, fontWeight:700, padding:'4px 10px', borderRadius:6 }}>{s.arrow} {s.label.toUpperCase()}</div>}
         {isCompany && (
           <button onClick={() => onWatchlistClick(a.symbol)} style={{ position:'absolute', top:12, right:12, background: isWatchlisted ? '#2563eb' : 'rgba(255,255,255,0.92)', border:'1px solid #e5e7eb', borderRadius:6, padding:'4px 10px', fontSize:11, fontWeight:600, color: isWatchlisted ? '#fff' : '#374151', cursor:'pointer', transition:'all 0.2s' }}>
@@ -120,12 +223,45 @@ function FetchingScreen({ symbol }) {
   );
 }
 
+// ── MOBILE HEADER ─────────────────────────────────────────────────────────────
+function MobileHeader({ feedTitle, articleCount, isStock, view, setView, watchlist, onWatchlistClick, loading }) {
+  const inWatchlist = isStock && watchlist?.find(w => w.symbol === view.symbol);
+  return (
+    <div style={{ background:'#fff', padding:'14px 16px 12px', borderBottom:'1px solid #f0f0f0', position:'sticky', top:0, zIndex:10 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+        {view !== 'feed' && (
+          <button onClick={() => setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#374151', padding:0, lineHeight:1 }}>←</button>
+        )}
+        <div style={{ fontSize:22, fontWeight:800, color:'#111', letterSpacing:'-0.3px' }}>{feedTitle}</div>
+        {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:4 }}>{articleCount} articles</span>}
+        {isStock && (
+          <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
+            <button
+              onClick={() => onWatchlistClick(view.symbol)}
+              style={{ padding:'7px 14px', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', background: inWatchlist ? '#2563eb' : '#f3f4f6', color: inWatchlist ? '#fff' : '#374151', border:'none' }}
+            >
+              {inWatchlist ? '✓ Watchlisted' : '+ Watchlist'}
+            </button>
+            <button
+              style={{ padding:'7px 14px', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', background:'#111', color:'#fff', border:'none' }}
+            >
+              Dashboard
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN FEED ─────────────────────────────────────────────────────────────────
 export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [exchangeTab, setExchangeTab] = useState('NSE');
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
+  const isMobile = useIsMobile();
 
   const isStock = view?.type === 'stock';
   const isExchange = view === 'World Exchange';
@@ -140,9 +276,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   useEffect(() => {
     setLoading(true);
     setArticles([]);
-
     const delay = isStock ? 1200 : 0;
-
     const timer = setTimeout(() => {
       let url = `${API}?limit=200`;
       if (isStock) url = `${API}?limit=100&symbol=${view.symbol}`;
@@ -162,7 +296,6 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
         setLoading(false);
       }).catch(() => setLoading(false));
     }, delay);
-
     return () => clearTimeout(timer);
   }, [view]);
 
@@ -179,10 +312,58 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   const displayArticles = isExchange ? filteredExchange : articles;
   const inWatchlist = isStock && watchlist?.find(w => w.symbol === view.symbol);
 
+  // ── MOBILE LAYOUT ───────────────────────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <div style={{ background:'#f3f4f6', minHeight:'100vh', display:'flex', flexDirection:'column' }}>
+        {toast && <WatchlistToast symbol={toast} />}
+
+        <MobileHeader
+          feedTitle={feedTitle}
+          articleCount={displayArticles.length}
+          isStock={isStock}
+          view={view}
+          setView={setView}
+          watchlist={watchlist}
+          onWatchlistClick={handleWatchlistClick}
+          loading={loading}
+        />
+
+        {isExchange && (
+          <div style={{ display:'flex', gap:8, padding:'10px 12px', overflowX:'auto', background:'#fff', borderBottom:'1px solid #f0f0f0' }}>
+            {EXCHANGE_TABS.map(ex => (
+              <button key={ex.key} onClick={() => setExchangeTab(ex.key)} style={{ padding:'6px 16px', borderRadius:20, fontSize:12, fontWeight:700, border:'none', background: exchangeTab===ex.key ? ex.color : '#f3f4f6', color: exchangeTab===ex.key ? '#fff' : '#374151', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>{ex.label}</button>
+            ))}
+          </div>
+        )}
+
+        <div style={{ flex:1, overflowY:'auto', padding:'12px' }}>
+          {loading && isStock && <FetchingScreen symbol={view.symbol} />}
+          {loading && !isStock && (
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:80, gap:12 }}>
+              <div style={{ width:36, height:36, border:'3px solid #e5e7eb', borderTop:'3px solid #2563eb', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              <div style={{ fontSize:13, color:'#9ca3af' }}>Loading news...</div>
+            </div>
+          )}
+          {!loading && displayArticles.length === 0 && (
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:80, gap:12 }}>
+              <div style={{ fontSize:44 }}>📭</div>
+              <div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news found</div>
+            </div>
+          )}
+          {!loading && displayArticles.map(a => (
+            <MobileNewsCard key={a.id} a={a} watchlist={watchlist} setView={setView} onWatchlistClick={handleWatchlistClick} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── DESKTOP LAYOUT (unchanged) ──────────────────────────────────────────────
   return (
     <main style={{ background:'#f3f4f6', borderRadius:12, padding:'0', overflowY:'hidden', display:'flex', flexDirection:'column' }}>
       {toast && <WatchlistToast symbol={toast} />}
-
       <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0, background:'#fff', borderRadius:'12px 12px 0 0' }}>
         {view !== 'feed' && <button onClick={() => setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>}
         <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>{feedTitle}</div>
@@ -193,7 +374,6 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
           </button>
         )}
       </div>
-
       {isExchange && (
         <div style={{ display:'flex', gap:8, padding:'12px 12px 0' }}>
           {EXCHANGE_TABS.map(ex => (
@@ -201,7 +381,6 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
           ))}
         </div>
       )}
-
       <div style={{ overflowY:'auto', padding:'12px', flex:1 }}>
         {loading && isStock && <FetchingScreen symbol={view.symbol} />}
         {loading && !isStock && (
