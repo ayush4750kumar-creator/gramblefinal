@@ -5,7 +5,7 @@ const { pool } = require('../config/database');
 router.get('/', async (req, res) => {
   try {
     const page      = parseInt(req.query.page)  || 1;
-    const limit     = parseInt(req.query.limit) || 20;
+    const limit     = parseInt(req.query.limit) || 1200;
     const symbol    = req.query.symbol    || null;
     const sentiment = req.query.sentiment || null;
     const category  = req.query.category  || null;
