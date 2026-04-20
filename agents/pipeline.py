@@ -1,9 +1,10 @@
 """
-pipeline.py — Master Pipeline (Fresh Start)
-Flow: AgentX (fetch) → AgentY (tag) → AgentZ (dedup) → AgentGroq (sentiment+summary+ready)
-- Clears all articles on first boot (fresh start)
-- Only processes newly fetched articles (no backlog)
-- Runs every 3 minutes
+pipeline.py — Master Pipeline
+Fetch → Tag → Dedup → AgentBacklog (up to 50 parallel sub-agents)
+
+AgentBacklog spawns one sub-agent per Groq key (GROQ_API_KEY_1 to GROQ_API_KEY_50).
+Each sub-agent owns its key exclusively — zero contention.
+With 50 keys: ~25 seconds to process 600 articles.
 
 Usage:
   python agents/pipeline.py --loop --interval 3
@@ -14,20 +15,18 @@ sys.path.insert(0, os.path.dirname(__file__))
 import argparse, time
 from datetime import datetime
 from db_utils import migrate, get_conn
-import psycopg2.extras
 
-import agentX, agentY, agentZ, agentGroq
+import agentX, agentY, agentZ, agentBacklog
 import healthcheck; healthcheck.start()
 
 BANNER = """
 ╔══════════════════════════════════════════════════════╗
 ║         S T A R K  N E W S  P I P E L I N E         ║
-║   X(fetch) → Y(tag) → Z(dedup) → Groq(AI+ready)     ║
+║     X(fetch) → Y(tag) → Z(dedup) → Backlog(AI)      ║
 ╚══════════════════════════════════════════════════════╝"""
 
 
 def clear_all_articles():
-    """Wipe entire articles table for a fresh start."""
     conn = get_conn()
     cur  = conn.cursor()
     cur.execute("TRUNCATE TABLE articles RESTART IDENTITY;")
@@ -35,23 +34,6 @@ def clear_all_articles():
     cur.close()
     conn.close()
     print("🗑️  Cleared all articles from DB — fresh start!")
-
-
-def get_unprocessed_articles(limit=50):
-    """Get only recently added unprocessed articles."""
-    conn = get_conn()
-    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""
-        SELECT id, title, full_text FROM articles
-        WHERE (is_ready IS NULL OR is_ready = false)
-        AND (is_duplicate IS NULL OR is_duplicate = false)
-        ORDER BY created_at DESC
-        LIMIT %s
-    """, (limit,))
-    rows = [dict(r) for r in cur.fetchall()]
-    cur.close()
-    conn.close()
-    return rows
 
 
 def run_once():
@@ -72,16 +54,15 @@ def run_once():
     tagged = agentY.run(limit=500)
     print(f"  ⏱  Tag layer:      {time.time()-t:.1f}s  ({tagged} tagged)")
 
-    # ── Layer 3: Deduplicate ──────────────────────────────────────────────────
+    # ── Layer 3: Dedup ────────────────────────────────────────────────────────
     t = time.time()
     duped = agentZ.run(hours=48)
     print(f"  ⏱  Dedup layer:    {time.time()-t:.1f}s  ({duped} removed)")
 
-    # ── Layer 4: Groq — only process what's new, no backlog ──────────────────
+    # ── Layer 4: Backlog — all unprocessed articles, parallel sub-agents ──────
     t = time.time()
-    articles = get_unprocessed_articles(limit=50)
-    processed = agentGroq.run(articles)
-    print(f"  ⏱  Groq layer:     {time.time()-t:.1f}s  ({processed} processed)")
+    backlog_done = agentBacklog.run()
+    print(f"  ⏱  Backlog layer:  {time.time()-t:.1f}s  ({backlog_done} processed)")
 
     elapsed = time.time() - t_total
     print(f"\n✅ Pipeline complete in {elapsed:.1f}s\n")
@@ -90,16 +71,15 @@ def run_once():
 def main():
     print(BANNER)
 
-    parser = argparse.ArgumentParser(description='Stark News Pipeline')
+    parser = argparse.ArgumentParser()
     parser.add_argument('--loop',     action='store_true')
     parser.add_argument('--interval', type=int, default=3)
-    parser.add_argument('--no-clear', action='store_true', help='Skip DB clear on startup')
+    parser.add_argument('--no-clear', action='store_true')
     args = parser.parse_args()
 
     print("\n🗄️  Checking database schema...")
     migrate()
 
-    # Fresh start — wipe old backlog unless --no-clear is passed
     if not args.no_clear:
         clear_all_articles()
 
