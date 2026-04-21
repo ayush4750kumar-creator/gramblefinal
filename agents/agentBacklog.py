@@ -1,5 +1,5 @@
 """
-agentBacklog.py — Parallel Backlog Processor (FIXED)
+agentBacklog.py — Parallel Backlog Processor (FIXED v2)
 
 Fixes applied:
 1. Full-text scraping — fetches actual article content when full_text is empty
@@ -9,8 +9,10 @@ Fixes applied:
 5. Error logging — prints why articles fail instead of silent None
 6. Key health tracking — marks a key as dead after 3 consecutive 429s
 7. LIMIT 50 newest first — prevents backlog overload, clears run by run
+8. Content sanitization — strips null bytes, non-printable chars, normalizes unicode
+9. 400 error body logging — prints Groq's rejection reason for debugging
 """
-import sys, os, time, json, threading, re
+import sys, os, time, json, threading, re, unicodedata
 sys.path.insert(0, os.path.dirname(__file__))
 
 from db_utils import get_conn
@@ -20,7 +22,7 @@ import psycopg2.extras
 GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.1-8b-instant"
 
-# Supports up to 50 keys automatically
+# Supports up to 50 keys automatically (picks up GROQ_API_KEY_1 ... GROQ_API_KEY_50)
 GROQ_KEYS = [k for k in [
     os.environ.get(f"GROQ_API_KEY_{i}", "") for i in range(1, 51)
 ] if k]
@@ -30,6 +32,26 @@ if not GROQ_KEYS:
     single = os.environ.get("GROQ_API_KEY", "")
     if single:
         GROQ_KEYS = [single]
+
+
+# ── Content sanitizer ─────────────────────────────────────────────────────────
+
+def sanitize(text: str) -> str:
+    """Remove null bytes, non-printable chars, and normalize unicode."""
+    if not text:
+        return ""
+    # Remove null bytes
+    text = text.replace("\x00", "")
+    # Remove control characters except newline and tab
+    text = "".join(
+        c for c in text
+        if unicodedata.category(c) != "Cc" or c in ("\n", "\t")
+    )
+    # Normalize unicode (e.g. ligatures, fancy quotes → ASCII-safe forms)
+    text = unicodedata.normalize("NFKD", text)
+    # Collapse excessive whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 
 # ── Full-text scraper ─────────────────────────────────────────────────────────
@@ -125,6 +147,11 @@ def groq_call(key: str, prompt: str, agent_id: int) -> str:
                 timeout=25,
             )
 
+            if r.status_code == 400:
+                # Log the full rejection reason so we can debug content issues
+                print(f"  ❌ Agent {agent_id}: 400 Bad Request — {r.text[:400]}")
+                return ""
+
             if r.status_code == 429:
                 consecutive_429 += 1
                 retry_after = float(r.headers.get("retry-after", 0))
@@ -157,12 +184,16 @@ def process_one(key: str, article: dict, agent_id: int):
     text  = article.get("full_text", "") or ""
     url   = article.get("url", "")       or ""
 
+    # Sanitize whatever came from DB first
+    title = sanitize(title)
+    text  = sanitize(text)
+
     # Scrape full text if DB has empty/short content
     if len(text.strip()) < 200 and url:
         print(f"  🌐 Agent {agent_id}: scraping article {article['id']}")
         scraped = scrape_article_text(url)
         if scraped:
-            text = scraped
+            text = sanitize(scraped)
             # Cache back to DB so we don't re-scrape next run
             try:
                 with _db_lock:
@@ -170,7 +201,7 @@ def process_one(key: str, article: dict, agent_id: int):
                     cur  = conn.cursor()
                     cur.execute(
                         "UPDATE articles SET full_text=%s WHERE id=%s",
-                        (scraped[:8000], article["id"])
+                        (text[:8000], article["id"])
                     )
                     conn.commit()
                     cur.close()
@@ -178,8 +209,8 @@ def process_one(key: str, article: dict, agent_id: int):
             except Exception:
                 pass
 
-    # Send 3000 chars instead of 1200
-    combined = (title + "\n\n" + text[:3000]).strip()
+    # Build combined content — sanitize again after concatenation
+    combined = sanitize((title + "\n\n" + text[:3000]).strip())
 
     if not combined or len(combined) < 20:
         print(f"  ⚠ Agent {agent_id}: article {article['id']} has no content — skipping")
@@ -278,7 +309,7 @@ def sub_agent(agent_id: int, key: str, queue: ArticleQueue,
             with lock:
                 counts["failed"] += 1
 
-        time.sleep(1.5)  # 40 RPM — safely under Groq free tier limit
+        time.sleep(1.5)  # ~40 RPM — safely under Groq free tier limit
 
 
 # ── Fetch backlog from DB ─────────────────────────────────────────────────────
