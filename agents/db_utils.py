@@ -80,7 +80,7 @@ def get_pending_tag(limit=300):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
-        SELECT id, title, url, source FROM articles
+        SELECT id, title, url, source, full_text, published_at, agent_source, symbol, tag_feed FROM articles
         WHERE (tag_category IS NULL OR tag_category = '')
         AND (is_duplicate IS NULL OR is_duplicate = false)
         ORDER BY published_at DESC LIMIT %s
