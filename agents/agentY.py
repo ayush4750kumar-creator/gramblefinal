@@ -250,7 +250,7 @@ def run(limit: int = 500) -> int:
         snippet = text[:300] if text else title
 
         # AI classification
-        if False:  # disabled — use fallback only
+        if GROQ_KEYS:
             result = classify_article(title, snippet)
             time.sleep(0.3)  # ~3 req/s — well under 30 RPM free tier
         else:
