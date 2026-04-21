@@ -3,7 +3,7 @@ agentB.py — Pre-Market News & Analysis
 Runs before 9:15 IST. GIFT Nifty signals, global cues, pre-market wrap.
 Sources: MoneyControl pre-market, CNBC TV18, Investing.com, SGX/GIFT Nifty via yfinance
 """
-import sys, os
+import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
 from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, HEADERS, is_financial
@@ -12,42 +12,58 @@ from datetime import datetime
 import requests, time
 
 SOURCES = [
-    ("ET Pre-Open",              "https://economictimes.indiatimes.com/markets/rssfeeds/1977021502.cms"),
-    ("Investing.com Asia",       "https://www.investing.com/rss/news_25.rss"),
-    ("Investing.com Economy",    "https://www.investing.com/rss/news_14.rss"),
+    ("ET Pre-Open",           "https://economictimes.indiatimes.com/markets/rssfeeds/1977021502.cms"),
+    ("Investing.com Asia",    "https://www.investing.com/rss/news_25.rss"),
+    ("Investing.com Economy", "https://www.investing.com/rss/news_14.rss"),
 ]
 
+COMPANY_PATTERN = re.compile(
+    r'\b[A-Z][a-zA-Z]{1,20}\s+(Ltd|Limited|Inc|Corp|Industries|Enterprises|'
+    r'Power|Finance|Bank|Auto|Tech|Pharma|Infra|Energy|Capital|Motors|'
+    r'Chemicals|Holdings|Group|Services|Solutions|Ventures|Cement|Steel|'
+    r'Telecom|Insurance|Securities|Investments|Retail|Foods|Consumer)\b'
+)
 
+def detect_feed(symbol: str, title: str) -> str:
+    if symbol and symbol.strip():
+        return 'company'
+    if title and COMPANY_PATTERN.search(title):
+        return 'company'
+    return 'global'
 
 def is_market_news(title: str) -> bool:
     t = title.lower()
-    return any(kw in t for kw in ['stock', 'market', 'nifty', 'sensex', 'bse', 'nse', 'share', 'equity', 'trading', 'invest', 'earning', 'profit', 'revenue', 'ipo', 'fund', 'economy', 'gdp', 'inflation', 'rate', 'rbi', 'sebi', 'rupee', 'oil', 'gold', 'crypto', 'nasdaq', 'dow', 'fed', 'tariff', 'trade', 'bank', 'finance', 'fiscal'])
+    return any(kw in t for kw in [
+        'stock', 'market', 'nifty', 'sensex', 'bse', 'nse', 'share', 'equity',
+        'trading', 'invest', 'earning', 'profit', 'revenue', 'ipo', 'fund',
+        'economy', 'gdp', 'inflation', 'rate', 'rbi', 'sebi', 'rupee', 'oil',
+        'gold', 'crypto', 'nasdaq', 'dow', 'fed', 'tariff', 'trade', 'bank',
+        'finance', 'fiscal',
+    ])
 
 def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> list:
-    """Fetch Google News RSS as fallback."""
     import urllib.parse
     articles = []
     try:
-        q = urllib.parse.quote(query)
+        q   = urllib.parse.quote(query)
         url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
         entries = fetch_rss(url, f"Google News ({query})")
         for e in entries[:15]:
-            link = e.get('link', '')
+            link  = e.get('link', '')
             title = e.get('title', '')
-            if not link or not title:
+            if not link or not title or not is_market_news(title):
                 continue
-            if not is_market_news(title):
-                continue
-            pub = parse_date(e)
+            symbol = extract_symbol(title)
+            pub    = parse_date(e)
             articles.append({
-                'symbol':          extract_symbol(title),
+                'symbol':          symbol,
                 'title':           title,
                 'url':             link,
                 'source':          'Google News',
                 'tag_source_name': 'Google News',
                 'published_at':    pub,
                 'full_text':       clean_html(e.get('summary', '')),
-                'tag_feed':        'global',
+                'tag_feed':        detect_feed(symbol, title),
                 'tag_category':    category,
                 'agent_source':    agent_source,
                 'tag_after_hours': 0,
@@ -57,30 +73,28 @@ def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> 
     return articles
 
 def fetch_gift_nifty():
-    """Fetch GIFT Nifty / SGX Nifty as a news signal using yfinance."""
     articles = []
     try:
         import yfinance as yf
-        # NIFTY 50 futures proxy
         proxies = {
-            "^NSEI":  "Nifty 50",
-            "^BSESN": "Sensex",
-            "^DJI":   "Dow Jones",
-            "^IXIC":  "Nasdaq",
-            "^GSPC":  "S&P 500",
-            "CL=F":   "Crude Oil",
-            "GC=F":   "Gold",
+            "^NSEI":    "Nifty 50",
+            "^BSESN":   "Sensex",
+            "^DJI":     "Dow Jones",
+            "^IXIC":    "Nasdaq",
+            "^GSPC":    "S&P 500",
+            "CL=F":     "Crude Oil",
+            "GC=F":     "Gold",
             "USDINR=X": "USD/INR",
         }
         lines = []
         for ticker, name in proxies.items():
             try:
-                t = yf.Ticker(ticker)
+                t    = yf.Ticker(ticker)
                 hist = t.history(period="2d")
                 if len(hist) >= 2:
                     prev_close = hist['Close'].iloc[-2]
                     last_close = hist['Close'].iloc[-1]
-                    chg = ((last_close - prev_close) / prev_close) * 100
+                    chg  = ((last_close - prev_close) / prev_close) * 100
                     arrow = "▲" if chg > 0 else "▼"
                     lines.append(f"{arrow} {name}: {last_close:.2f} ({chg:+.2f}%)")
             except Exception:
@@ -121,10 +135,10 @@ def run() -> int:
             if not link or link in seen_urls:
                 continue
             seen_urls.add(link)
-            title = e.get('title', '')
+            title   = e.get('title', '')
             summary = clean_html(e.get('summary', '') or e.get('description', ''))
-            symbol = extract_symbol(title + ' ' + summary)
-            pub = parse_date(e)
+            symbol  = extract_symbol(title + ' ' + summary)
+            pub     = parse_date(e)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -133,7 +147,7 @@ def run() -> int:
                 'tag_source_name': source_name,
                 'published_at':    pub,
                 'full_text':       summary,
-                'tag_feed':        'company' if symbol else 'global',
+                'tag_feed':        detect_feed(symbol, title),
                 'tag_category':    'analysis',
                 'agent_source':    'B',
                 'tag_after_hours': 1,

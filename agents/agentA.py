@@ -3,7 +3,7 @@ agentA.py — After-Market Company News
 Runs after 15:30 IST. Fetches company-specific news from Indian financial media.
 Sources: MoneyControl, Economic Times Markets, LiveMint, Business Standard, Yahoo Finance per-stock
 """
-import sys, os
+import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
 from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, COMPANY_MAP, HEADERS, is_financial
@@ -12,24 +12,37 @@ from datetime import datetime
 import requests, time
 
 SOURCES = [
-    ("ET Markets",                "https://economictimes.indiatimes.com/markets/rssfeeds/1977021502.cms"),
-    ("ET Stocks",                 "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms"),
-    ("ET Earnings",               "https://economictimes.indiatimes.com/markets/earnings/rssfeeds/2146842.cms"),
-    ("LiveMint Markets",          "https://www.livemint.com/rss/markets"),
-    ("NDTV Profit",               "https://feeds.feedburner.com/ndtvprofit-latest"),
+    ("ET Markets",       "https://economictimes.indiatimes.com/markets/rssfeeds/1977021502.cms"),
+    ("ET Stocks",        "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms"),
+    ("ET Earnings",      "https://economictimes.indiatimes.com/markets/earnings/rssfeeds/2146842.cms"),
+    ("LiveMint Markets", "https://www.livemint.com/rss/markets"),
+    ("NDTV Profit",      "https://feeds.feedburner.com/ndtvprofit-latest"),
 ]
 
+COMPANY_PATTERN = re.compile(
+    r'\b[A-Z][a-zA-Z]{1,20}\s+(Ltd|Limited|Inc|Corp|Industries|Enterprises|'
+    r'Power|Finance|Bank|Auto|Tech|Pharma|Infra|Energy|Capital|Motors|'
+    r'Chemicals|Holdings|Group|Services|Solutions|Ventures|Cement|Steel|'
+    r'Telecom|Insurance|Securities|Investments|Retail|Foods|Consumer)\b'
+)
+
+def detect_feed(symbol: str, title: str) -> str:
+    """AgentA only fetches from stock/market feeds — always company."""
+    if symbol and symbol.strip():
+        return 'company'
+    if title and COMPANY_PATTERN.search(title):
+        return 'company'
+    return 'company'   # default: AgentA is a company-news agent
+
 def fetch_yahoo_per_stock(symbols: list) -> list:
-    """Fetch articles per symbol from Yahoo Finance RSS."""
     articles = []
-    for sym in symbols[:5]:   # cap to avoid hammering
+    for sym in symbols[:5]:
         ticker = sym + ".NS" if not sym.endswith(".NS") and len(sym) <= 10 else sym
         try:
-            # ✅ FIX: url was previously undefined — now correctly built
             url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
             entries = fetch_rss(url, f"Yahoo/{sym}", timeout=6)
             for e in entries[:10]:
-                pub = parse_date(e)
+                pub  = parse_date(e)
                 link = e.get('link', '')
                 if not link:
                     continue
@@ -41,7 +54,7 @@ def fetch_yahoo_per_stock(symbols: list) -> list:
                     'tag_source_name': 'Yahoo Finance',
                     'published_at':    pub,
                     'full_text':       clean_html(e.get('summary', '')),
-                    'tag_feed':        'company',   # AgentA is always company news
+                    'tag_feed':        'company',
                     'tag_category':    'news',
                     'agent_source':    'A',
                     'tag_after_hours': is_after_hours(pub),
@@ -78,8 +91,7 @@ def run() -> int:
                 'tag_source_name': source_name,
                 'published_at':    pub,
                 'full_text':       summary,
-                # ✅ AgentA fetches from market/stock feeds — default to company
-                'tag_feed':        'company' if symbol else 'global',
+                'tag_feed':        detect_feed(symbol, title),
                 'tag_category':    'news',
                 'agent_source':    'A',
                 'tag_after_hours': is_after_hours(pub),

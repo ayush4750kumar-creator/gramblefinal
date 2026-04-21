@@ -3,7 +3,7 @@ agentC.py — After-Session Impact News
 Identifies after-hours articles that will affect the NEXT trading session.
 Sources: NSE announcements, BSE after-hours, MoneyControl evening, Reuters evening
 """
-import sys, os
+import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
 from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, HEADERS, is_financial
@@ -21,7 +21,6 @@ SOURCES = [
     ("Business Standard Evening", "https://economictimes.indiatimes.com/industry/rssfeeds/13352306.cms"),
 ]
 
-# Keywords that signal next-session impact
 IMPACT_KEYWORDS = [
     "after hours", "after market", "earnings", "results", "quarterly",
     "guidance", "forecast", "upgrade", "downgrade", "target price",
@@ -31,22 +30,79 @@ IMPACT_KEYWORDS = [
     "rbi", "sebi", "order", "penalty", "regulatory",
 ]
 
-def fetch_nse_announcements() -> list:
-    """Pull NSE corporate announcements API."""
+COMPANY_PATTERN = re.compile(
+    r'\b[A-Z][a-zA-Z]{1,20}\s+(Ltd|Limited|Inc|Corp|Industries|Enterprises|'
+    r'Power|Finance|Bank|Auto|Tech|Pharma|Infra|Energy|Capital|Motors|'
+    r'Chemicals|Holdings|Group|Services|Solutions|Ventures|Cement|Steel|'
+    r'Telecom|Insurance|Securities|Investments|Retail|Foods|Consumer)\b'
+)
+
+def detect_feed(symbol: str, title: str) -> str:
+    """AgentC fetches company-impact news — default to company."""
+    if symbol and symbol.strip():
+        return 'company'
+    if title and COMPANY_PATTERN.search(title):
+        return 'company'
+    return 'company'   # AgentC is a company-news agent
+
+def is_impact_article(text: str) -> bool:
+    return any(kw in text.lower() for kw in IMPACT_KEYWORDS)
+
+def is_market_news(title: str) -> bool:
+    t = title.lower()
+    return any(kw in t for kw in [
+        'stock', 'market', 'nifty', 'sensex', 'bse', 'nse', 'share', 'equity',
+        'trading', 'invest', 'earning', 'profit', 'revenue', 'ipo', 'fund',
+        'economy', 'gdp', 'inflation', 'rate', 'rbi', 'sebi', 'rupee', 'oil',
+        'gold', 'crypto', 'nasdaq', 'dow', 'fed', 'tariff', 'trade', 'bank',
+        'finance', 'fiscal',
+    ])
+
+def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> list:
+    import urllib.parse
     articles = []
     try:
-        url = "https://www.nseindia.com/api/corporate-announcements?index=equities"
+        q   = urllib.parse.quote(query)
+        url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
+        entries = fetch_rss(url, f"Google News ({query})")
+        for e in entries[:15]:
+            link  = e.get('link', '')
+            title = e.get('title', '')
+            if not link or not title or not is_market_news(title):
+                continue
+            symbol = extract_symbol(title)
+            pub    = parse_date(e)
+            articles.append({
+                'symbol':          symbol,
+                'title':           title,
+                'url':             link,
+                'source':          'Google News',
+                'tag_source_name': 'Google News',
+                'published_at':    pub,
+                'full_text':       clean_html(e.get('summary', '')),
+                'tag_feed':        detect_feed(symbol, title),
+                'tag_category':    category,
+                'agent_source':    agent_source,
+                'tag_after_hours': 0,
+            })
+    except Exception as ex:
+        print(f"  Google News ({query}): {ex}")
+    return articles
+
+def fetch_nse_announcements() -> list:
+    articles = []
+    try:
+        url     = "https://www.nseindia.com/api/corporate-announcements?index=equities"
         session = requests.Session()
         session.headers.update(HEADERS)
-        # NSE requires a cookie first
         session.get("https://www.nseindia.com", timeout=5)
         resp = session.get(url, timeout=8)
         data = resp.json()
         for item in (data if isinstance(data, list) else [])[:50]:
-            sym = item.get('symbol', '')
+            sym   = item.get('symbol', '')
             title = item.get('desc', '') or item.get('subject', '')
-            link = f"https://www.nseindia.com/companies-listing/corporate-filings-announcements"
-            pub = item.get('an_dt', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
+            link  = f"https://www.nseindia.com/companies-listing/corporate-filings-announcements"
+            pub   = item.get('an_dt', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
             articles.append({
                 'symbol':          sym,
                 'title':           f"[NSE] {sym}: {title}",
@@ -65,11 +121,10 @@ def fetch_nse_announcements() -> list:
     return articles
 
 def fetch_bse_announcements() -> list:
-    """Pull BSE corporate announcements."""
     articles = []
     try:
         today = datetime.utcnow().strftime('%Y%m%d')
-        url = (
+        url   = (
             f"https://api.bseindia.com/BseIndiaAPI/api/AnnGetAnnouncementList/w"
             f"?strCat=-1&strPrevDate={today}&strScrip=&strSearch=P&strToDate={today}&strType=C&subcategory=-1"
         )
@@ -78,10 +133,10 @@ def fetch_bse_announcements() -> list:
         for item in (data.get('Table', []) or [])[:50]:
             sym_code = item.get('SCRIP_CD', '')
             sym_name = item.get('SLONGNAME', sym_code)
-            title = item.get('HEADLINE', '')
-            link = f"https://www.bseindia.com/xml-data/corpfiling/AttachLive/{item.get('ATTACHMENTNAME','')}"
-            pub = item.get('NEWS_DT', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
-            sym = extract_symbol(sym_name + ' ' + title)
+            title    = item.get('HEADLINE', '')
+            link     = f"https://www.bseindia.com/xml-data/corpfiling/AttachLive/{item.get('ATTACHMENTNAME','')}"
+            pub      = item.get('NEWS_DT', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
+            sym      = extract_symbol(sym_name + ' ' + title)
             articles.append({
                 'symbol':          sym or sym_code,
                 'title':           f"[BSE] {sym_name}: {title}",
@@ -99,65 +154,19 @@ def fetch_bse_announcements() -> list:
         print(f"  ⚠  BSE announcements: {e}")
     return articles
 
-def is_impact_article(text: str) -> bool:
-    text_lower = text.lower()
-    return any(kw in text_lower for kw in IMPACT_KEYWORDS)
-
-
-
-def is_market_news(title: str) -> bool:
-    t = title.lower()
-    return any(kw in t for kw in ['stock', 'market', 'nifty', 'sensex', 'bse', 'nse', 'share', 'equity', 'trading', 'invest', 'earning', 'profit', 'revenue', 'ipo', 'fund', 'economy', 'gdp', 'inflation', 'rate', 'rbi', 'sebi', 'rupee', 'oil', 'gold', 'crypto', 'nasdaq', 'dow', 'fed', 'tariff', 'trade', 'bank', 'finance', 'fiscal'])
-
-def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> list:
-    import urllib.parse
-    articles = []
-    try:
-        q = urllib.parse.quote(query)
-        url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
-        entries = fetch_rss(url, f"Google News ({query})")
-        for e in entries[:15]:
-            link = e.get('link', '')
-            title = e.get('title', '')
-            if not link or not title:
-                continue
-            if not is_market_news(title):
-                continue
-            pub = parse_date(e)
-            articles.append({
-                'symbol':          extract_symbol(title),
-                'title':           title,
-                'url':             link,
-                'source':          'Google News',
-                'tag_source_name': 'Google News',
-                'published_at':    pub,
-                'full_text':       clean_html(e.get('summary', '')),
-                'tag_feed':        'global',
-                'tag_category':    category,
-                'agent_source':    agent_source,
-                'tag_after_hours': 0,
-            })
-    except Exception as ex:
-        print(f"  Google News ({query}): {ex}")
-    return articles
-
-
 def enrich_nse_article(article: dict) -> dict:
-    """Search Google News for the company and enrich the article full_text."""
     import urllib.parse
     symbol = article.get('symbol', '')
-    title = article.get('title', '')
+    title  = article.get('title', '')
     if not symbol:
         return article
     try:
-        # Strip [NSE] prefix for cleaner search
         clean_title = title.replace('[NSE]', '').strip()
         query = f"{symbol} NSE India stock {clean_title}"
-        q = urllib.parse.quote(query)
+        q   = urllib.parse.quote(query)
         url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
         entries = fetch_rss(url, f"Enrich {symbol}", timeout=5)
         if entries:
-            # Combine top 3 results as context
             texts = []
             for e in entries[:3]:
                 t = e.get('title', '')
@@ -166,7 +175,7 @@ def enrich_nse_article(article: dict) -> dict:
                     texts.append(t + '. ' + s)
             if texts:
                 article['full_text'] = ' '.join(texts)[:1500]
-    except Exception as ex:
+    except Exception:
         pass
     return article
 
@@ -184,14 +193,14 @@ def run() -> int:
             link = e.get('link', '')
             if not link or link in seen_urls:
                 continue
-            title = e.get('title', '')
+            title   = e.get('title', '')
             summary = clean_html(e.get('summary', '') or e.get('description', ''))
             combined = title + ' ' + summary
             if not is_impact_article(combined):
-                continue  # AgentC only keeps next-session-relevant articles
+                continue
             seen_urls.add(link)
             symbol = extract_symbol(combined)
-            pub = parse_date(e)
+            pub    = parse_date(e)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -200,7 +209,7 @@ def run() -> int:
                 'tag_source_name': source_name,
                 'published_at':    pub,
                 'full_text':       summary,
-                'tag_feed':        'company' if symbol else 'global',
+                'tag_feed':        detect_feed(symbol, title),
                 'tag_category':    'after_hours',
                 'agent_source':    'C',
                 'tag_after_hours': 1,
@@ -215,13 +224,14 @@ def run() -> int:
 
     for q in ["NSE BSE earnings results quarterly", "India stock market after hours results", "Indian company quarterly profit revenue"]:
         articles += fetch_google_news(q, "C", "news")
-    # Enrich NSE official filings with Google News context
+
     enriched = []
     for a in articles:
         if a.get('agent_source') == 'C' and a.get('tag_category') == 'official':
             a = enrich_nse_article(a)
         enriched.append(a)
     articles = enriched
+
     saved = save_articles(articles)
     print(f"  ✅ AgentC done — {len(articles)} total, {saved} new saved\n")
     return saved
