@@ -1,13 +1,17 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
+const cors    = require('cors');
 const { initDB, pool } = require('./config/database');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.use('/api/news', require('./routes/news'));
+// ── Routes ───────────────────────────────────────────────────────────────────
+app.use('/api/news',      require('./routes/news'));
+app.use('/api/auth',      require('./routes/auth'));
+app.use('/api/watchlist', require('./routes/watchlist'));
+app.use('/api/search',    require('./routes/search'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
@@ -29,7 +33,6 @@ async function deleteOldArticles() {
   }
 }
 
-// Run once on startup then every 24 hours
 initDB().then(async () => {
   await deleteOldArticles();
   setInterval(deleteOldArticles, 24 * 60 * 60 * 1000);
