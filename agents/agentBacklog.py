@@ -8,6 +8,7 @@ Fixes applied:
 4. Smarter sleep — 1.5s instead of 2s (still safe at 30 RPM free tier)
 5. Error logging — prints why articles fail instead of silent None
 6. Key health tracking — marks a key as dead after 3 consecutive 429s
+7. LIMIT 50 newest first — prevents backlog overload, clears run by run
 """
 import sys, os, time, json, threading, re
 sys.path.insert(0, os.path.dirname(__file__))
@@ -156,7 +157,7 @@ def process_one(key: str, article: dict, agent_id: int):
     text  = article.get("full_text", "") or ""
     url   = article.get("url", "")       or ""
 
-    # FIX 1: Scrape full text if DB has empty/short content
+    # Scrape full text if DB has empty/short content
     if len(text.strip()) < 200 and url:
         print(f"  🌐 Agent {agent_id}: scraping article {article['id']}")
         scraped = scrape_article_text(url)
@@ -177,7 +178,7 @@ def process_one(key: str, article: dict, agent_id: int):
             except Exception:
                 pass
 
-    # FIX 2: Send 3000 chars instead of 1200
+    # Send 3000 chars instead of 1200
     combined = (title + "\n\n" + text[:3000]).strip()
 
     if not combined or len(combined) < 20:
@@ -288,9 +289,8 @@ def get_backlog() -> list:
     cur.execute("""
         SELECT id, title, full_text, url FROM articles
         WHERE (is_ready IS NULL OR is_ready = false)
-        AND created_at > NOW() - INTERVAL '6 hours'
         AND (is_duplicate IS NULL OR is_duplicate = false)
-        ORDER BY created_at ASC
+        ORDER BY created_at DESC LIMIT 50
     """)
     rows = [dict(r) for r in cur.fetchall()]
     cur.close()
