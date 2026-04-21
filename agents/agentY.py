@@ -1,29 +1,89 @@
 """
-agentY.py — Tagger
-Reads all untagged articles from DB and assigns:
+agentY.py — AI-Powered Tagger (Groq)
+
+Uses Groq LLM to classify every article — no hardcoded company lists.
+Assigns:
   • tag_feed        → 'company' | 'global'
   • tag_category    → 'news' | 'opinion' | 'analysis' | 'official' | 'after_hours'
   • tag_after_hours → 0 | 1
   • tag_source_name → clean display name
+  • symbol          → stock ticker if company article (e.g. RELIANCE, AAPL)
 """
-import sys, os, re
+import sys, os, re, time, json
 sys.path.insert(0, os.path.dirname(__file__))
 
 from db_utils import get_pending_tag, update_article
-from fetch_utils import COMPANY_MAP, is_after_hours
+from fetch_utils import is_after_hours
+import requests
 
-# ── Agents whose output is ALWAYS company-specific ───────────────────────────
-COMPANY_AGENTS = {'A', 'C', 'D', 'H'}
+GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.1-8b-instant"
 
-# ── Regex: catches "Adani Power", "Trent Ltd", "HDFC Bank", etc. ─────────────
-COMPANY_PATTERN = re.compile(
-    r'\b[A-Z][a-zA-Z]{1,20}\s+(Ltd|Limited|Inc|Corp|Industries|Enterprises|'
-    r'Power|Finance|Bank|Auto|Tech|Pharma|Infra|Energy|Capital|Motors|'
-    r'Chemicals|Holdings|Group|Services|Solutions|Ventures|Cement|Steel|'
-    r'Telecom|Insurance|Securities|Investments|Retail|Foods|Consumer)\b'
-)
+# Load keys same way as agentBacklog/agentGroq
+GROQ_KEYS = [k for k in [
+    os.environ.get(f"GROQ_API_KEY_{i}", "") for i in range(1, 51)
+] if k]
+if not GROQ_KEYS:
+    single = os.environ.get("GROQ_API_KEY", "")
+    if single:
+        GROQ_KEYS = [single]
 
-# ── Source name normalisation map ─────────────────────────────────────────────
+_key_available_at = [0.0] * max(len(GROQ_KEYS), 1)
+_key_index = 0
+
+
+def get_best_key() -> tuple:
+    now = time.time()
+    for i, key in enumerate(GROQ_KEYS):
+        if _key_available_at[i] <= now:
+            return i, key
+    idx  = min(range(len(GROQ_KEYS)), key=lambda i: _key_available_at[i])
+    wait = _key_available_at[idx] - now
+    time.sleep(wait)
+    return idx, GROQ_KEYS[idx]
+
+
+def mark_key_limited(idx: int, retry_after: float = 60.0):
+    earliest = time.time() + retry_after
+    if _key_available_at[idx] < earliest:
+        _key_available_at[idx] = earliest
+
+
+def groq_call(prompt: str) -> str:
+    if not GROQ_KEYS:
+        return ""
+    for _ in range(8):
+        idx, key = get_best_key()
+        try:
+            r = requests.post(
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type":  "application/json",
+                },
+                json={
+                    "model":       GROQ_MODEL,
+                    "max_tokens":  120,
+                    "temperature": 0.0,
+                    "messages":    [{"role": "user", "content": prompt}],
+                },
+                timeout=15,
+            )
+            if r.status_code == 429:
+                retry_after = float(r.headers.get("retry-after", 60))
+                mark_key_limited(idx, retry_after)
+                continue
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"].strip()
+        except requests.exceptions.Timeout:
+            continue
+        except Exception:
+            continue
+    return ""
+
+
+# ── Source name normalisation ─────────────────────────────────────────────────
+
 SOURCE_DISPLAY = {
     "moneycontrol":        "MoneyControl",
     "economic times":      "Economic Times",
@@ -46,53 +106,18 @@ SOURCE_DISPLAY = {
     "bse":                 "BSE India",
     "sec edgar":           "SEC Edgar",
     "yahoo finance":       "Yahoo Finance",
-    "yfinance":            "Yahoo Finance",
     "wall street journal": "Wall Street Journal",
     "wsj":                 "Wall Street Journal",
     "financial times":     "Financial Times",
-    "ft":                  "Financial Times",
     "marketwatch":         "MarketWatch",
-    "barron":              "Barron's",
     "seeking alpha":       "Seeking Alpha",
     "nasdaq":              "NASDAQ",
-    "investopedia":        "Investopedia",
-    "intraday tracker":    "Live Market Data",
-    "market indices":      "Market Indices",
     "guardian":            "The Guardian",
     "al jazeera":          "Al Jazeera",
+    "google news":         "Google News",
+    "intraday tracker":    "Live Market Data",
+    "market indices":      "Market Indices",
 }
-
-# ── Category detection keyword sets ──────────────────────────────────────────
-OPINION_KEYWORDS = [
-    "opinion:", "view:", "column:", "commentary:", "perspective:", "analysis:",
-    "why i think", "i believe", "in my view", "analyst says", "expert says",
-    "should you buy", "should you sell", "is it time to", "here's why",
-    "this is why", "explained:", "decoded:", "what investors should",
-]
-
-ANALYSIS_KEYWORDS = [
-    "technical analysis", "chart pattern", "rsi", "macd", "moving average",
-    "support level", "resistance level", "fibonacci", "breakout", "breakdown",
-    "pivot", "target price", "price target", "valuation", "pe ratio",
-    "outlook:", "forecast:", "preview:", "expect", "projection",
-    "bull case", "bear case", "upgrade", "downgrade", "rating:",
-    "recommendation", "buy rating", "sell rating", "hold rating",
-    "quarterly preview", "result preview", "earnings estimate",
-]
-
-OFFICIAL_KEYWORDS = [
-    "[nse]", "[bse]", "[sebi]", "[rbi]", "[sec", "[pib]", "official",
-    "press release", "circular", "notification", "gazette", "order:",
-    "filing:", "annual report", "agm", "egm", "boardmeeting",
-    "regulatory", "compliance",
-]
-
-AFTER_HOURS_KEYWORDS = [
-    "after hours", "after market", "after bell", "post market",
-    "evening wrap", "morning wrap", "pre-market", "pre market",
-    "gift nifty", "sgx nifty", "overnight",
-]
-
 
 def detect_source_display(raw_source: str) -> str:
     s = (raw_source or '').lower()
@@ -102,83 +127,147 @@ def detect_source_display(raw_source: str) -> str:
     return raw_source.title() if raw_source else 'Unknown'
 
 
-def detect_feed(symbol: str, title: str, text: str,
-                agent_source: str = '', existing_feed: str = '') -> str:
-    """
-    Determine 'company' or 'global'.
+# ── AI classification ─────────────────────────────────────────────────────────
 
-    Priority order:
-      1. Explicit symbol already attached → company
-      2. Agent source is a known company-news agent → company
-      3. Existing tag set by the agent (trust it) → use as-is
-      4. Company name pattern in title → company
-      5. COMPANY_MAP variant match → company
-      6. Fallback → global
-    """
-    # 1. Symbol present
-    if symbol and symbol.strip():
-        return 'company'
+CLASSIFY_PROMPT = """You are a financial news classifier. Given a news article title (and optional snippet), classify it.
 
-    # 2. Agent source is ground truth
-    if agent_source.strip().upper() in COMPANY_AGENTS:
-        return 'company'
+Article title: {title}
+Snippet: {snippet}
 
-    # 3. Trust the tag the agent already set
-    if existing_feed in ('company', 'global'):
-        return existing_feed
+Respond ONLY with a JSON object, no explanation, no markdown:
+{{
+  "feed": "company" or "global",
+  "category": "news" or "analysis" or "opinion" or "official" or "after_hours",
+  "symbol": "TICKER or empty string",
+  "company_name": "Full company name or empty string"
+}}
 
-    # 4. Regex: catches "Adani Power", "HDFC Bank Ltd", etc.
-    if COMPANY_PATTERN.search(title):
-        return 'company'
-
-    # 5. COMPANY_MAP keyword scan
-    combined = (title + ' ' + text).lower()
-    for sym, variants in COMPANY_MAP.items():
-        for v in variants:
-            if v in combined:
-                return 'company'
-
-    return 'global'
+Rules:
+- feed="company" only if the article is PRIMARILY about ONE specific company
+- feed="global" for macro, forex, commodities, indices, multi-company, or general market news
+- symbol: use the stock exchange ticker (e.g. RELIANCE, TCS, AAPL, ALK). Leave empty if not a single-company article or if you don't know the ticker.
+- category="official" for regulatory filings, exchange notices, government press releases
+- category="after_hours" for pre-market, post-market, overnight, Gift Nifty wrap articles
+- category="analysis" for technical analysis, price targets, forecasts, previews
+- category="opinion" for editorials, columns, "should you buy" articles
+- category="news" for everything else
+- Output ONLY the JSON. Nothing else."""
 
 
-def detect_category(title: str, text: str, agent_source: str = '') -> str:
-    combined = (title + ' ' + (text or '')).lower()
+def classify_article(title: str, snippet: str) -> dict:
+    """Call Groq to classify one article. Returns dict with feed/category/symbol."""
+    prompt = CLASSIFY_PROMPT.format(
+        title=title[:200],
+        snippet=snippet[:300] if snippet else ""
+    )
+    raw = groq_call(prompt)
+    if not raw:
+        return {}
+    try:
+        clean = raw.replace("```json", "").replace("```", "").strip()
+        start = clean.find("{")
+        end   = clean.rfind("}") + 1
+        if start >= 0 and end > start:
+            data = json.loads(clean[start:end])
+            # Validate feed
+            if data.get("feed") not in ("company", "global"):
+                data["feed"] = "global"
+            # Validate category
+            if data.get("category") not in ("news", "analysis", "opinion", "official", "after_hours"):
+                data["category"] = "news"
+            # Clean symbol — uppercase, strip spaces, max 10 chars
+            sym = str(data.get("symbol") or "").strip().upper()[:10]
+            # Reject generic words that aren't tickers
+            if sym in ("", "N/A", "NA", "NONE", "NULL", "UNKNOWN"):
+                sym = ""
+            data["symbol"] = sym
+            return data
+    except Exception:
+        pass
+    return {}
 
-    if agent_source in ('D', 'E') or any(kw in combined for kw in OFFICIAL_KEYWORDS):
-        return 'official'
-    if any(kw in combined for kw in AFTER_HOURS_KEYWORDS):
-        return 'after_hours'
-    if any(kw in combined for kw in OPINION_KEYWORDS):
-        return 'opinion'
-    if any(kw in combined for kw in ANALYSIS_KEYWORDS):
-        return 'analysis'
-    return 'news'
 
+# ── Fallback: keyword-based for when Groq is unavailable ─────────────────────
+
+AFTER_HOURS_KEYWORDS = [
+    "after hours", "after market", "pre-market", "pre market",
+    "gift nifty", "sgx nifty", "overnight", "morning wrap", "evening wrap",
+]
+OFFICIAL_KEYWORDS = [
+    "press release", "circular", "filing", "regulatory", "agm", "egm",
+    "board meeting", "sebi order", "rbi notification", "gazette",
+]
+ANALYSIS_KEYWORDS = [
+    "technical analysis", "price target", "target price", "forecast",
+    "preview", "outlook", "upgrade", "downgrade", "rating", "valuation",
+    "breakout", "support", "resistance", "bull case", "bear case",
+]
+OPINION_KEYWORDS = [
+    "opinion:", "view:", "commentary:", "should you buy", "should you sell",
+    "here's why", "explained:", "decoded:", "i think", "in my view",
+]
+
+def fallback_classify(title: str, text: str) -> dict:
+    combined = (title + " " + text).lower()
+    if any(k in combined for k in AFTER_HOURS_KEYWORDS):
+        category = "after_hours"
+    elif any(k in combined for k in OFFICIAL_KEYWORDS):
+        category = "official"
+    elif any(k in combined for k in ANALYSIS_KEYWORDS):
+        category = "analysis"
+    elif any(k in combined for k in OPINION_KEYWORDS):
+        category = "opinion"
+    else:
+        category = "news"
+    return {"feed": "global", "category": category, "symbol": ""}
+
+
+# ── Main run ──────────────────────────────────────────────────────────────────
 
 def run(limit: int = 500) -> int:
-    print("🏷️  AgentY — Tagger")
+    print("🏷️  AgentY — AI Tagger")
+
+    if not GROQ_KEYS:
+        print("  ⚠  No Groq keys found — falling back to keyword tagging")
+
     articles = get_pending_tag(limit)
     if not articles:
         print("  ℹ  Nothing to tag.\n")
         return 0
 
-    updated = 0
+    updated   = 0
+    ai_tagged = 0
+    fb_tagged = 0
+
     for art in articles:
-        title        = art.get('title', '')
-        text         = art.get('full_text', '') or ''
-        raw_source   = art.get('source', '')
-        symbol       = art.get('symbol', '') or ''
-        published    = art.get('published_at', '')
-        agent_src    = art.get('agent_source', '') or ''
-        existing_feed = art.get('tag_feed', '') or ''
+        title      = art.get('title', '') or ''
+        text       = art.get('full_text', '') or ''
+        raw_source = art.get('source', '') or ''
+        published  = art.get('published_at', '') or ''
+        symbol     = art.get('symbol', '') or ''
 
-        # Re-derive symbol if blank
-        if not symbol:
-            from fetch_utils import extract_symbol
-            symbol = extract_symbol(title + ' ' + text)
+        # Use snippet: first 300 chars of text or title repeated
+        snippet = text[:300] if text else title
 
-        tag_feed        = detect_feed(symbol, title, text, agent_src, existing_feed)
-        tag_category    = detect_category(title, text, agent_src)
+        # AI classification
+        if GROQ_KEYS:
+            result = classify_article(title, snippet)
+            time.sleep(0.3)  # ~3 req/s — well under 30 RPM free tier
+        else:
+            result = {}
+
+        if result:
+            ai_tagged += 1
+        else:
+            result = fallback_classify(title, text)
+            fb_tagged += 1
+
+        # Use existing symbol if AI didn't find one
+        final_symbol = result.get("symbol") or symbol or ""
+
+        # If AI says company but no symbol, keep feed=company anyway (AI knows best)
+        tag_feed        = result.get("feed", "global")
+        tag_category    = result.get("category", "news")
         tag_after_hours = is_after_hours(published) if published else 0
         tag_source_name = detect_source_display(raw_source)
 
@@ -188,13 +277,14 @@ def run(limit: int = 500) -> int:
             'tag_after_hours': tag_after_hours,
             'tag_source_name': tag_source_name,
         }
-        if symbol and not art.get('symbol'):
-            updates['symbol'] = symbol
+        if final_symbol and not art.get('symbol'):
+            updates['symbol'] = final_symbol
 
         update_article(art['id'], updates)
         updated += 1
 
-    print(f"  ✅ AgentY tagged {updated} articles\n")
+    print(f"  ✅ AgentY tagged {updated} articles "
+          f"(🤖 AI: {ai_tagged} | 🔑 fallback: {fb_tagged})\n")
     return updated
 
 
