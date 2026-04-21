@@ -20,24 +20,29 @@ SOURCES = [
 ]
 
 def fetch_yahoo_per_stock(symbols: list) -> list:
-    """Fetch 10 articles per symbol from Yahoo Finance RSS."""
+    """Fetch articles per symbol from Yahoo Finance RSS."""
     articles = []
     for sym in symbols[:5]:   # cap to avoid hammering
-        # Yahoo Finance RSS uses .NS suffix for NSE stocks
-        ticker = sym + ".NS" if not sym.endswith(".NS") and len(sym) <= 6 and not sym.isupper() else sym
+        ticker = sym + ".NS" if not sym.endswith(".NS") and len(sym) <= 10 else sym
         try:
+            # ✅ FIX: url was previously undefined — now correctly built
+            url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
             entries = fetch_rss(url, f"Yahoo/{sym}", timeout=6)
             for e in entries[:10]:
                 pub = parse_date(e)
+                link = e.get('link', '')
+                if not link:
+                    continue
                 articles.append({
                     'symbol':          sym,
                     'title':           e.get('title', ''),
-                    'url':             e.get('link', ''),
+                    'url':             link,
                     'source':          'Yahoo Finance',
                     'tag_source_name': 'Yahoo Finance',
                     'published_at':    pub,
                     'full_text':       clean_html(e.get('summary', '')),
-                    'tag_feed':        'company',
+                    'tag_feed':        'company',   # AgentA is always company news
+                    'tag_category':    'news',
                     'agent_source':    'A',
                     'tag_after_hours': is_after_hours(pub),
                 })
@@ -50,19 +55,21 @@ def run() -> int:
     print("📈 AgentA — After-Market Company News")
     articles = []
     seen_urls = set()
+    live_feeds = 0
 
-    # RSS feeds
     for source_name, url in SOURCES:
         entries = fetch_rss(url, source_name)
+        if entries:
+            live_feeds += 1
         for e in entries:
             link = e.get('link', '')
             if not link or link in seen_urls:
                 continue
             seen_urls.add(link)
-            title = e.get('title', '')
+            title   = e.get('title', '')
             summary = clean_html(e.get('summary', '') or e.get('description', ''))
-            symbol = extract_symbol(title + ' ' + summary)
-            pub = parse_date(e)
+            symbol  = extract_symbol(title + ' ' + summary)
+            pub     = parse_date(e)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -71,14 +78,15 @@ def run() -> int:
                 'tag_source_name': source_name,
                 'published_at':    pub,
                 'full_text':       summary,
+                # ✅ AgentA fetches from market/stock feeds — default to company
                 'tag_feed':        'company' if symbol else 'global',
+                'tag_category':    'news',
                 'agent_source':    'A',
                 'tag_after_hours': is_after_hours(pub),
             })
 
-    print(f"  📡 RSS: {len(articles)} articles from {len(SOURCES)} feeds")
+    print(f"  📡 RSS: {len(articles)} articles from {live_feeds}/{len(SOURCES)} feeds")
 
-    # Yahoo Finance per-stock for top 40 symbols
     yahoo_arts = fetch_yahoo_per_stock(list(COMPANY_MAP.keys()))
     articles += yahoo_arts
     print(f"  📡 Yahoo per-stock: {len(yahoo_arts)} articles")

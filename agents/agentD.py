@@ -31,15 +31,22 @@ BSE_CATEGORIES = [
 ]
 
 def fetch_sec_edgar(symbol: str, cik: str) -> list:
-    """Fetch latest 8-K filings from SEC Edgar for a company."""
+    """Fetch latest 8-K filings from SEC Edgar Atom feed for a company."""
     articles = []
     try:
-        url = f"https://efts.sec.gov/LATEST/search-index?q=%22&dateRange=custom&startdt={(datetime.utcnow()-timedelta(days=3)).strftime('%Y-%m-%d')}&forms=8-K&entity={cik}"
+        # ✅ FIX: rss_url was previously undefined — now correctly built
+        rss_url = (
+            f"https://www.sec.gov/cgi-bin/browse-edgar"
+            f"?action=getcompany&CIK={cik}&type=8-K"
+            f"&dateb=&owner=include&count=5&search_text=&output=atom"
+        )
         entries = fetch_rss(rss_url, f"SEC/{symbol}", timeout=10)
         for e in entries[:5]:
-            link = e.get('link', '')
+            link  = e.get('link', '')
             title = e.get('title', '')
-            pub = parse_date(e)
+            pub   = parse_date(e)
+            if not link or not title:
+                continue
             articles.append({
                 'symbol':          symbol,
                 'title':           f"[SEC 8-K] {symbol}: {title}",
@@ -61,7 +68,7 @@ def fetch_bse_category(cat_name: str, cat_code: str) -> list:
     """Fetch BSE announcements by category."""
     articles = []
     try:
-        today = datetime.utcnow().strftime('%Y%m%d')
+        today    = datetime.utcnow().strftime('%Y%m%d')
         week_ago = (datetime.utcnow() - timedelta(days=7)).strftime('%Y%m%d')
         url = (
             f"https://api.bseindia.com/BseIndiaAPI/api/AnnGetAnnouncementList/w"
@@ -72,9 +79,9 @@ def fetch_bse_category(cat_name: str, cat_code: str) -> list:
         data = resp.json()
         for item in (data.get('Table', []) or [])[:20]:
             sym_name = item.get('SLONGNAME', '')
-            title = item.get('HEADLINE', '')
-            sym = extract_symbol(sym_name + ' ' + title)
-            attach = item.get('ATTACHMENTNAME', '')
+            title    = item.get('HEADLINE', '')
+            sym      = extract_symbol(sym_name + ' ' + title)
+            attach   = item.get('ATTACHMENTNAME', '')
             link = (
                 f"https://www.bseindia.com/xml-data/corpfiling/AttachLive/{attach}"
                 if attach else
@@ -105,15 +112,17 @@ def fetch_nse_filings() -> list:
         session = requests.Session()
         session.headers.update(HEADERS)
         session.get("https://www.nseindia.com", timeout=5)
-        url = "https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=&to_date=&csv=false"
+        url  = "https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=&to_date=&csv=false"
         resp = session.get(url, timeout=10)
         data = resp.json()
         for item in (data if isinstance(data, list) else [])[:60]:
-            sym = item.get('symbol', '')
+            sym   = item.get('symbol', '')
             title = item.get('subject', '') or item.get('desc', '')
-            link = f"https://nsearchives.nseindia.com/corporate/{item.get('attchmntFile','')}" \
-                   if item.get('attchmntFile') \
-                   else f"https://www.nseindia.com/companies-listing/corporate-filings-announcements"
+            link  = (
+                f"https://nsearchives.nseindia.com/corporate/{item.get('attchmntFile','')}"
+                if item.get('attchmntFile')
+                else "https://www.nseindia.com/companies-listing/corporate-filings-announcements"
+            )
             pub = item.get('an_dt', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
             articles.append({
                 'symbol':          sym,
@@ -136,18 +145,15 @@ def run() -> int:
     print("📋 AgentD — Official Company Statements")
     articles = []
 
-    # BSE category filings
     for cat_name, cat_code in BSE_CATEGORIES:
         batch = fetch_bse_category(cat_name, cat_code)
         articles += batch
         print(f"  📋 BSE {cat_name}: {len(batch)}")
 
-    # NSE filings
     nse = fetch_nse_filings()
     articles += nse
     print(f"  📋 NSE filings: {len(nse)}")
 
-    # SEC Edgar 8-K for US stocks
     for symbol, cik in SEC_TICKERS.items():
         batch = fetch_sec_edgar(symbol, cik)
         articles += batch
