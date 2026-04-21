@@ -20,7 +20,7 @@ def migrate():
             published_at    TIMESTAMPTZ,
             full_text       TEXT,
             tag_feed        TEXT DEFAULT 'global',
-            tag_category    TEXT DEFAULT 'news',
+            tag_category    TEXT,
             tag_after_hours INTEGER DEFAULT 0,
             agent_source    TEXT,
             sentiment_label TEXT,
@@ -33,6 +33,9 @@ def migrate():
         );
         CREATE INDEX IF NOT EXISTS idx_articles_symbol ON articles(symbol);
         CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at DESC);
+
+        -- Fix existing articles that got 'news' as default — reset so AgentY can re-tag them
+        ALTER TABLE articles ALTER COLUMN tag_category DROP DEFAULT;
     """)
     conn.commit()
     cur.close(); conn.close()
@@ -44,7 +47,6 @@ def is_financial_article(title, text=""):
 
 def save_articles(articles: list) -> int:
     articles = [a for a in articles if is_financial_article(a.get("title",""), a.get("full_text",""))]
-    if not articles: return 0
     if not articles: return 0
     conn = get_conn()
     cur = conn.cursor()
@@ -77,11 +79,17 @@ def update_article(article_id: int, updates: dict):
     cur.close(); conn.close()
 
 def get_pending_tag(limit=300):
+    """
+    Returns articles that AgentY hasn't processed yet.
+    We detect this by checking tag_source_name IS NULL — AgentY always sets this,
+    so any article without it hasn't been tagged yet.
+    (tag_category can't be used — it had a DEFAULT 'news' which pre-fills it)
+    """
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
         SELECT id, title, url, source, full_text, published_at, agent_source, symbol, tag_feed FROM articles
-        WHERE (tag_category IS NULL OR tag_category = '')
+        WHERE (tag_source_name IS NULL OR tag_source_name = '')
         AND (is_duplicate IS NULL OR is_duplicate = false)
         ORDER BY published_at DESC LIMIT %s
     """, (limit,))
@@ -177,5 +185,3 @@ FINANCIAL_KEYWORDS = [
     "results season","earnings season","guidance","outlook","forecast","recession",
     "rate hike","rate cut","credit rating","moody","fitch","crisil","crore","lakh",
 ]
-
-
