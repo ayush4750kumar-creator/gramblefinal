@@ -1,4 +1,5 @@
 [phases.setup]
-nixPkgs = ["nodejs", "python311", "python311Packages.pip"]
+nixPkgs = ["nodejs", "python311", "python311Packages.pip", "zlib"]
+
 [phases.install]
 cmds = ["npm install", "pip install -r requirements.txt --break-system-packages"]
