@@ -1,5 +1,0 @@
-[phases.setup]
-nixPkgs = ["nodejs", "python311", "python311Packages.pip", "python311Packages.psycopg2"]
-
-[phases.install]
-cmds = ["npm install", "pip install -r requirements.txt --break-system-packages --ignore-installed psycopg2-binary"]
