@@ -288,6 +288,7 @@ def get_backlog() -> list:
     cur.execute("""
         SELECT id, title, full_text, url FROM articles
         WHERE (is_ready IS NULL OR is_ready = false)
+        AND created_at > NOW() - INTERVAL '6 hours'
         AND (is_duplicate IS NULL OR is_duplicate = false)
         ORDER BY created_at ASC
     """)
