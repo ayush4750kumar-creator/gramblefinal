@@ -9,7 +9,8 @@ const SENTIMENT = {
 };
 
 const PLACEHOLDER = 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&q=80';
-const API = 'https://gramblefinal-production.up.railway.app/api/news';
+const API      = 'https://gramblefinal-production.up.railway.app/api/news';
+const SEARCH_API = 'https://gramblefinal-production.up.railway.app/api/search';
 
 const EXCHANGE_TABS = [
   { key:'NSE', label:'NSE', color:'#7c3aed' },
@@ -33,7 +34,6 @@ function isVader(text) {
   return text.toLowerCase().includes('vader') || text.toLowerCase().includes('compound score');
 }
 
-// FIXED: handles timezone offset and null dates
 function timeAgo(dateStr) {
   if (!dateStr) return '';
   const date = new Date(dateStr);
@@ -208,14 +208,17 @@ function MobileHeader({ feedTitle, articleCount, isStock, view, setView, watchli
 }
 
 export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
-  const [articles, setArticles] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [articles,    setArticles]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [fetching,    setFetching]    = useState(false); // pipeline running in background
   const [exchangeTab, setExchangeTab] = useState('NSE');
-  const [toast, setToast] = useState(null);
-  const toastTimer = useRef(null);
-  const isMobile = useIsMobile();
+  const [toast,       setToast]       = useState(null);
+  const toastTimer  = useRef(null);
+  const pollTimer   = useRef(null);
+  const pollCount   = useRef(0);
+  const isMobile    = useIsMobile();
 
-  const isStock = view?.type === 'stock';
+  const isStock    = view?.type === 'stock';
   const isExchange = view === 'World Exchange';
 
   const handleWatchlistClick = (symbol) => {
@@ -225,18 +228,64 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     toastTimer.current = setTimeout(() => setToast(null), 2500);
   };
 
+  // ── Fetch articles from /api/news ─────────────────────────────────────────
+  const fetchArticles = (sym) => {
+    const url = `${API}?limit=100&symbol=${sym}`;
+    return fetch(url).then(r => r.json()).then(d => d.data || []);
+  };
+
+  // ── Poll every 5s until articles arrive (max 12 attempts = 60s) ──────────
+  const startPolling = (sym) => {
+    stopPolling();
+    pollCount.current = 0;
+    pollTimer.current = setInterval(async () => {
+      pollCount.current += 1;
+      if (pollCount.current > 12) { stopPolling(); setFetching(false); return; }
+      const data = await fetchArticles(sym);
+      if (data.length > 0) {
+        setArticles(data);
+        setFetching(false);
+        stopPolling();
+      }
+    }, 5000);
+  };
+
+  const stopPolling = () => {
+    if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
+  };
+
   useEffect(() => {
+    stopPolling();
     setLoading(true);
     setArticles([]);
-    const delay = isStock ? 1200 : 0;
-    const timer = setTimeout(() => {
-      let url = `${API}?limit=1200`;
-      if (isStock) url = `${API}?limit=100&symbol=${view.symbol}`;
-      else if (isExchange) url = `${API}?limit=500`;
-      else if (view !== 'feed') url = `${API}?limit=1200&category=${encodeURIComponent(view)}`;
-      fetch(url).then(r => r.json()).then(d => {
-        let data = d.data || [];
-        if (!isStock && !isExchange) {
+    setFetching(false);
+
+    const delay = isStock ? 300 : 0;
+    const timer = setTimeout(async () => {
+      if (isStock) {
+        const sym = view.symbol;
+
+        // 1. Trigger pipeline immediately via /api/search/news (fire and forget)
+        fetch(`${SEARCH_API}/news?symbol=${sym}`).catch(() => {});
+
+        // 2. Fetch whatever is already in DB
+        const data = await fetchArticles(sym).catch(() => []);
+        setArticles(data);
+        setLoading(false);
+
+        // 3. If no articles yet, show fetching state and start polling
+        if (data.length === 0) {
+          setFetching(true);
+          startPolling(sym);
+        }
+      } else {
+        // Non-stock views — fetch normally
+        let url = `${API}?limit=1200`;
+        if (isExchange) url = `${API}?limit=500`;
+        else if (view !== 'feed') url = `${API}?limit=1200&category=${encodeURIComponent(view)}`;
+
+        fetch(url).then(r => r.json()).then(d => {
+          let data = d.data || [];
           const bad = ['wrestlemania','wwe','cricket','ipl','bollywood','celebrity'];
           const allExchangeSources = Object.values(EXCHANGE_SOURCES).flat();
           data = data.filter(a => {
@@ -244,12 +293,13 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
             const isExchangeNews = allExchangeSources.some(s => src.includes(s));
             return !isExchangeNews && !isHindi(a.title) && !bad.some(k => (a.title||'').toLowerCase().includes(k));
           });
-        }
-        setArticles(data);
-        setLoading(false);
-      }).catch(() => setLoading(false));
+          setArticles(data);
+          setLoading(false);
+        }).catch(() => setLoading(false));
+      }
     }, delay);
-    return () => clearTimeout(timer);
+
+    return () => { clearTimeout(timer); stopPolling(); };
   }, [view]);
 
   const filteredExchange = isExchange ? articles.filter(a => {
@@ -257,9 +307,12 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     return sources.some(s => (a.source||'').toLowerCase().includes(s) || (a.tag_source_name||'').toLowerCase().includes(s) || (a.agent_source||'').toLowerCase().includes(s));
   }) : [];
 
-  const feedTitle = isStock ? view.symbol : isExchange ? 'World Exchange' : view === 'feed' ? 'Global Feed' : view;
+  const feedTitle      = isStock ? view.symbol : isExchange ? 'World Exchange' : view === 'feed' ? 'Global Feed' : view;
   const displayArticles = isExchange ? filteredExchange : articles;
-  const inWatchlist = isStock && watchlist?.find(w => w.symbol === view.symbol);
+  const inWatchlist    = isStock && watchlist?.find(w => w.symbol === view.symbol);
+
+  // Show fetching screen if pipeline is running and no articles yet
+  const showFetching = isStock && (loading || (fetching && displayArticles.length === 0));
 
   if (isMobile) {
     return (
@@ -274,7 +327,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
           </div>
         )}
         <div style={{ flex:1, overflowY:'auto', padding:'12px' }}>
-          {loading && isStock && <FetchingScreen symbol={view.symbol} />}
+          {showFetching && <FetchingScreen symbol={view.symbol} />}
           {loading && !isStock && (
             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:80, gap:12 }}>
               <div style={{ width:36, height:36, border:'3px solid #e5e7eb', borderTop:'3px solid #2563eb', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
@@ -282,13 +335,13 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
               <div style={{ fontSize:13, color:'#9ca3af' }}>Loading news...</div>
             </div>
           )}
-          {!loading && displayArticles.length === 0 && (
+          {!showFetching && !loading && displayArticles.length === 0 && (
             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:80, gap:12 }}>
               <div style={{ fontSize:44 }}>📭</div>
               <div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news found</div>
             </div>
           )}
-          {!loading && displayArticles.map(a => (
+          {!showFetching && displayArticles.map(a => (
             <MobileNewsCard key={a.id} a={a} watchlist={watchlist} setView={setView} onWatchlistClick={handleWatchlistClick} />
           ))}
         </div>
@@ -317,7 +370,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
         </div>
       )}
       <div style={{ overflowY:'auto', padding:'12px', flex:1 }}>
-        {loading && isStock && <FetchingScreen symbol={view.symbol} />}
+        {showFetching && <FetchingScreen symbol={view.symbol} />}
         {loading && !isStock && (
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}>
             <div style={{ width:36, height:36, border:'3px solid #e5e7eb', borderTop:'3px solid #2563eb', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
@@ -325,13 +378,13 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
             <div style={{ fontSize:13, color:'#9ca3af' }}>Loading news...</div>
           </div>
         )}
-        {!loading && displayArticles.length === 0 && (
+        {!showFetching && !loading && displayArticles.length === 0 && (
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}>
             <div style={{ fontSize:44 }}>📭</div>
             <div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news found</div>
           </div>
         )}
-        {!loading && displayArticles.map(a => (
+        {!showFetching && displayArticles.map(a => (
           <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} onWatchlistClick={handleWatchlistClick} />
         ))}
       </div>
