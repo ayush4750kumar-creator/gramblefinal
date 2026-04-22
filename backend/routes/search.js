@@ -15,12 +15,12 @@ function triggerPipeline(symbol) {
   }
   recentTriggers.set(symbol, now);
 
-  const agentPath = path.join(__dirname, '../../agents/agentWatchlist.py');
+  const agentPath = path.join(__dirname, '../../pipeline.py');
   const pythonCmd = process.env.PYTHON_PATH || 'python3';
 
-  console.log(`🔥 SPAWNING pipeline for ${symbol}`);
+  console.log(`🔥 SPAWNING full pipeline for ${symbol}`);
   console.log(`   python: ${pythonCmd}`);
-  console.log(`   agent:  ${agentPath}`);
+  console.log(`   script: ${agentPath}`);
 
   const proc = spawn(pythonCmd, [agentPath, '--symbol', symbol], {
     detached: true,
