@@ -38,25 +38,32 @@ def run_for_symbol(symbol: str):
     print(f"{'─'*55}")
     t_total = time.time()
 
+    # Step 1: Fetch
     t = time.time()
     fetched = agentWatchlist.run(symbol=symbol)
     print(f"  ⏱  Watchlist fetch:    {time.time()-t:.1f}s  ({fetched} new articles)")
 
+    # Step 2: Tag (runs BEFORE mark_ready so it can find untagged articles)
     t = time.time()
     tagged = agentY.run(limit=50)
     print(f"  ⏱  Tag layer:          {time.time()-t:.1f}s  ({tagged} tagged)")
 
+    # Step 3: Now mark ready so frontend can see them
+    from agentWatchlist import mark_ready
+    mark_ready(symbol)
+
+    # Step 4: Dedup
     t = time.time()
     duped = agentZ.run(hours=48)
     print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
 
+    # Step 5: AI backlog
     t = time.time()
     backlog_done = agentBacklog.run()
     print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
 
     print(f"\n✅ Symbol pipeline for {symbol} complete in {time.time()-t_total:.1f}s\n")
-
-
+    
 def run_once():
     ts = datetime.now().strftime('%d %b %Y, %H:%M:%S')
     print(f"\n{'─'*55}")

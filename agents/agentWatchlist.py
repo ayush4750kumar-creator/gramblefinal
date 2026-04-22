@@ -191,16 +191,11 @@ def mark_ready(symbol: str):
 
 
 def run(symbol: str = None) -> int:
-    if symbol:
-        symbols = [symbol.upper()]
-        print(f"📌 AgentWatchlist — single symbol: {symbol}")
-    else:
-        symbols = get_all_watchlist_symbols()
-        print(f"📌 AgentWatchlist — {len(symbols)} watchlist symbols")
-
-    if not symbols:
-        print("  ℹ  No symbols to fetch.\n")
-        return 0
+    # ... existing fetch code ...
+    saved = save_articles(all_articles)
+    print(f"  ✅ AgentWatchlist done — {len(all_articles)} total, {saved} new saved\n")
+    # DO NOT mark_ready here anymore — pipeline.py does it after AgentY
+    return saved
 
     all_articles = []
     for sym in symbols:
