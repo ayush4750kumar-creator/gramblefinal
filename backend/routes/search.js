@@ -15,7 +15,7 @@ function triggerPipeline(symbol) {
   }
   recentTriggers.set(symbol, now);
 
-  const agentPath = path.join(__dirname, '../../pipeline.py');
+  const agentPath = path.join(__dirname, '../../agents/pipeline.py');
   const pythonCmd = process.env.PYTHON_PATH || 'python3';
 
   console.log(`🔥 SPAWNING full pipeline for ${symbol}`);
