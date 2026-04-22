@@ -1,12 +1,11 @@
 const express  = require('express');
 const router   = express.Router();
 const { pool } = require('../config/database');
-const { spawn } = require('child_process');
-const path     = require('path');
 
 const recentTriggers = new Map();
+const PIPELINE_URL   = process.env.PIPELINE_URL || 'https://resplendent-surprise.up.railway.app';
 
-function triggerPipeline(symbol) {
+async function triggerPipeline(symbol) {
   const now  = Date.now();
   const last = recentTriggers.get(symbol);
   if (last && now - last < 30_000) {
@@ -15,24 +14,18 @@ function triggerPipeline(symbol) {
   }
   recentTriggers.set(symbol, now);
 
-  const agentPath = path.join(__dirname, '../../agents/pipeline.py');
-  const pythonCmd = process.env.PYTHON_PATH || 'python3';
-
-  console.log(`🔥 SPAWNING full pipeline for ${symbol}`);
-  console.log(`   python: ${pythonCmd}`);
-  console.log(`   script: ${agentPath}`);
-
-  const proc = spawn(pythonCmd, [agentPath, '--symbol', symbol], {
-    detached: true,
-    stdio:    ['ignore', 'pipe', 'pipe'],
-    env:      { ...process.env, PYTHONUNBUFFERED: '1' },
-  });
-
-  proc.stdout?.on('data', d => console.log(`[pipeline][${symbol}] ${d.toString().trim()}`));
-  proc.stderr?.on('data', d => console.error(`[pipeline][${symbol}] ERROR: ${d.toString().trim()}`));
-  proc.on('error', e => console.error(`[pipeline][${symbol}] SPAWN FAILED: ${e.message}`));
-  proc.on('close', code => console.log(`[pipeline][${symbol}] exited with code ${code}`));
-  proc.unref();
+  console.log(`🔥 Triggering pipeline for ${symbol} via HTTP → ${PIPELINE_URL}`);
+  try {
+    const res = await fetch(`${PIPELINE_URL}/trigger`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ symbol }),
+      signal:  AbortSignal.timeout(5000),
+    });
+    console.log(`[pipeline][${symbol}] trigger response: ${res.status}`);
+  } catch (e) {
+    console.error(`[pipeline][${symbol}] trigger failed: ${e.message}`);
+  }
 }
 
 async function yahooSearch(q) {
