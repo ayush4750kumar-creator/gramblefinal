@@ -15,15 +15,24 @@ function triggerPipeline(symbol) {
     return;
   }
   recentTriggers.set(symbol, now);
+
   const agentPath = path.join(__dirname, '../../agents/agentWatchlist.py');
-  const proc = spawn('python3', [agentPath, '--symbol', symbol], {
+  const pythonCmd = process.env.PYTHON_PATH || 'python3';
+
+  console.log(`🔄 Pipeline triggered for ${symbol}`);
+  console.log(`   python: ${pythonCmd}`);
+  console.log(`   agent:  ${agentPath}`);
+
+  const proc = spawn(pythonCmd, [agentPath, '--symbol', symbol], {
     detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio:    ['ignore', 'pipe', 'pipe'],
+    env:      { ...process.env, PYTHONUNBUFFERED: '1' },
   });
+
   proc.stdout?.on('data', d => console.log(`[pipeline][${symbol}] ${d.toString().trim()}`));
   proc.stderr?.on('data', d => console.error(`[pipeline][${symbol}] ERROR: ${d.toString().trim()}`));
+  proc.on('error', e => console.error(`[pipeline][${symbol}] SPAWN FAILED: ${e.message}`));
   proc.unref();
-  console.log(`🔄 Pipeline triggered for ${symbol}`);
 }
 
 // ── Yahoo Finance live search — finds any stock in the world ─────────────────
@@ -32,7 +41,7 @@ async function yahooSearch(q) {
     const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=6&newsCount=0&listsCount=0`;
     const res  = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(4000),
+      signal:  AbortSignal.timeout(4000),
     });
     const data = await res.json();
     const quotes = (data?.quotes || []).filter(q =>
@@ -114,23 +123,19 @@ const ALL_STOCKS = [
 router.get('/suggest', async (req, res) => {
   const q = (req.query.q || '').trim().toLowerCase();
 
-  // Empty query — return popular
   if (!q) {
     return res.json({ success: true, data: POPULAR_STOCKS, popular: true });
   }
 
-  // 1. Try local list first (instant, no API call)
   let matches = ALL_STOCKS.filter(s =>
     s.symbol.toLowerCase().includes(q) ||
     s.name.toLowerCase().includes(q)
   ).slice(0, 8);
 
-  // 2. Not in local list → hit Yahoo Finance (finds any stock in the world)
   if (matches.length === 0) {
     matches = await yahooSearch(q);
   }
 
-  // 3. Yahoo also found nothing → show raw query as last resort
   if (matches.length === 0) {
     matches = [{
       symbol:        q.toUpperCase(),
@@ -140,7 +145,6 @@ router.get('/suggest', async (req, res) => {
     }];
   }
 
-  // Enrich all matches with article counts from our DB
   const symbols = matches.map(m => m.symbol);
   try {
     const result = await pool.query(
@@ -160,10 +164,12 @@ router.get('/suggest', async (req, res) => {
   res.json({ success: true, data: matches, popular: false });
 });
 
-// ── GET /api/search/news?symbol=UPLAND ───────────────────────────────────────
+// ── GET /api/search/news?symbol=UPLD ─────────────────────────────────────────
 router.get('/news', async (req, res) => {
   const symbol = (req.query.symbol || '').toUpperCase().trim();
   if (!symbol) return res.status(400).json({ success: false, error: 'Symbol required' });
+
+  console.log(`🔍 /api/search/news hit for: ${symbol}`);
 
   try {
     const result = await pool.query(
@@ -180,11 +186,11 @@ router.get('/news', async (req, res) => {
       [symbol]
     );
 
-    // Always trigger — dedup prevents spam if many users search same stock
     triggerPipeline(symbol);
 
     res.json({ success: true, data: result.rows, fetching: true });
   } catch (err) {
+    console.error(`/api/search/news error: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
