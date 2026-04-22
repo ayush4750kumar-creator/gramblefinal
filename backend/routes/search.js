@@ -4,7 +4,6 @@ const { pool } = require('../config/database');
 const { spawn } = require('child_process');
 const path     = require('path');
 
-// ── Dedup map — prevent same symbol triggering pipeline within 30s ──────────
 const recentTriggers = new Map();
 
 function triggerPipeline(symbol) {
@@ -19,7 +18,7 @@ function triggerPipeline(symbol) {
   const agentPath = path.join(__dirname, '../../agents/agentWatchlist.py');
   const pythonCmd = process.env.PYTHON_PATH || 'python3';
 
-  console.log(`🔄 Pipeline triggered for ${symbol}`);
+  console.log(`🔥 SPAWNING pipeline for ${symbol}`);
   console.log(`   python: ${pythonCmd}`);
   console.log(`   agent:  ${agentPath}`);
 
@@ -32,10 +31,10 @@ function triggerPipeline(symbol) {
   proc.stdout?.on('data', d => console.log(`[pipeline][${symbol}] ${d.toString().trim()}`));
   proc.stderr?.on('data', d => console.error(`[pipeline][${symbol}] ERROR: ${d.toString().trim()}`));
   proc.on('error', e => console.error(`[pipeline][${symbol}] SPAWN FAILED: ${e.message}`));
+  proc.on('close', code => console.log(`[pipeline][${symbol}] exited with code ${code}`));
   proc.unref();
 }
 
-// ── Yahoo Finance live search — finds any stock in the world ─────────────────
 async function yahooSearch(q) {
   try {
     const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=6&newsCount=0&listsCount=0`;
@@ -59,7 +58,6 @@ async function yahooSearch(q) {
   }
 }
 
-// ── Popular + full known list ─────────────────────────────────────────────────
 const POPULAR_STOCKS = [
   { symbol: 'RELIANCE',   name: 'Reliance Industries',       exchange: 'NSE' },
   { symbol: 'TCS',        name: 'Tata Consultancy Services', exchange: 'NSE' },
@@ -119,7 +117,6 @@ const ALL_STOCKS = [
   { symbol: 'SHOP',       name: 'Shopify',             exchange: 'NYSE' },
 ];
 
-// ── GET /api/search/suggest?q=trump ──────────────────────────────────────────
 router.get('/suggest', async (req, res) => {
   const q = (req.query.q || '').trim().toLowerCase();
 
@@ -164,7 +161,6 @@ router.get('/suggest', async (req, res) => {
   res.json({ success: true, data: matches, popular: false });
 });
 
-// ── GET /api/search/news?symbol=UPLD ─────────────────────────────────────────
 router.get('/news', async (req, res) => {
   const symbol = (req.query.symbol || '').toUpperCase().trim();
   if (!symbol) return res.status(400).json({ success: false, error: 'Symbol required' });
@@ -186,6 +182,7 @@ router.get('/news', async (req, res) => {
       [symbol]
     );
 
+    console.log(`📊 Found ${result.rows.length} existing articles for ${symbol}`);
     triggerPipeline(symbol);
 
     res.json({ success: true, data: result.rows, fetching: true });

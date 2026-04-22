@@ -20,9 +20,7 @@ COMPANY_PATTERN = re.compile(
     r'Telecom|Insurance|Securities|Investments|Retail|Foods|Consumer)\b'
 )
 
-# Company name map for building good search queries
 SYMBOL_TO_NAME = {
-    # Indian
     "RELIANCE":   "Reliance Industries",
     "TCS":        "Tata Consultancy Services TCS",
     "INFY":       "Infosys",
@@ -70,7 +68,6 @@ SYMBOL_TO_NAME = {
     "LTIM":       "LTIMindtree",
     "ASIANPAINT": "Asian Paints",
     "PIDILITIND": "Pidilite Industries",
-    # US
     "AAPL":  "Apple AAPL stock",
     "MSFT":  "Microsoft MSFT stock",
     "NVDA":  "Nvidia NVDA stock",
@@ -92,7 +89,6 @@ SYMBOL_TO_NAME = {
 
 
 def get_all_watchlist_symbols() -> list:
-    """Get unique symbols from all users' watchlists."""
     try:
         conn = get_conn()
         cur  = conn.cursor()
@@ -107,8 +103,7 @@ def get_all_watchlist_symbols() -> list:
 
 
 def fetch_news_for_symbol(symbol: str) -> list:
-    """Fetch news for a single symbol via Google News RSS + Bing."""
-    articles = []
+    articles  = []
     seen_urls = set()
 
     name  = SYMBOL_TO_NAME.get(symbol, symbol)
@@ -173,11 +168,29 @@ def fetch_news_for_symbol(symbol: str) -> list:
     return articles
 
 
+def mark_ready(symbol: str):
+    """Mark all unready WATCHLIST articles for this symbol as ready."""
+    try:
+        conn = get_conn()
+        cur  = conn.cursor()
+        cur.execute(
+            """UPDATE articles
+               SET is_ready = true
+               WHERE symbol = %s
+                 AND is_ready = false
+                 AND agent_source = 'WATCHLIST'""",
+            (symbol.upper(),)
+        )
+        updated = cur.rowcount
+        conn.commit()
+        cur.close()
+        conn.close()
+        print(f"  ✅ Marked {updated} articles ready for {symbol}")
+    except Exception as e:
+        print(f"  ⚠  Could not mark ready: {e}")
+
+
 def run(symbol: str = None) -> int:
-    """
-    If symbol given: fetch for just that symbol.
-    Otherwise: fetch for ALL watchlist symbols.
-    """
     if symbol:
         symbols = [symbol.upper()]
         print(f"📌 AgentWatchlist — single symbol: {symbol}")
@@ -194,10 +207,15 @@ def run(symbol: str = None) -> int:
         arts = fetch_news_for_symbol(sym)
         all_articles += arts
         print(f"  📡 {sym}: {len(arts)} articles")
-        time.sleep(0.3)   # gentle rate limiting
+        time.sleep(0.3)
 
     saved = save_articles(all_articles)
     print(f"  ✅ AgentWatchlist done — {len(all_articles)} total, {saved} new saved\n")
+
+    # ── Mark ready so /api/news can see them immediately ──────────────────
+    for sym in symbols:
+        mark_ready(sym)
+
     return saved
 
 
