@@ -57,18 +57,14 @@ router.post('/', authMiddleware, async (req, res) => {
       [sym]
     );
 
-    const existingNews = newsResult.rows;
-
-    // If fewer than 5 articles, trigger background fetch for this symbol
-    if (existingNews.length < 5) {
-      triggerWatchlistFetch(sym);
-    }
+    // Always trigger a fresh fetch for this symbol — no conditions
+    triggerWatchlistFetch(sym);
 
     res.json({
       success: true,
-      symbol: sym,
-      news: existingNews,
-      fetching: existingNews.length < 5
+      symbol:   sym,
+      news:     newsResult.rows,
+      fetching: true,
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -116,13 +112,16 @@ router.get('/news', authMiddleware, async (req, res) => {
   }
 });
 
-// Background fetch trigger — spawns agentWatchlist for a single symbol
+// Background fetch — always triggers for the symbol, no conditions
 function triggerWatchlistFetch(symbol) {
   const agentPath = path.join(__dirname, '../../agents/agentWatchlist.py');
   const proc = spawn('python3', [agentPath, '--symbol', symbol], {
     detached: true,
-    stdio:    'ignore',
+    stdio:    ['ignore', 'pipe', 'pipe'],
   });
+
+  proc.stdout?.on('data', d => console.log(`[agentWatchlist][${symbol}] ${d.toString().trim()}`));
+  proc.stderr?.on('data', d => console.error(`[agentWatchlist][${symbol}] ERROR: ${d.toString().trim()}`));
   proc.unref();
   console.log(`🔄 Triggered watchlist fetch for ${symbol}`);
 }
