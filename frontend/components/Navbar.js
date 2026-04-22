@@ -130,7 +130,7 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
                       </div>
                     </div>
 
-                    {/* Right: article count + Add button */}
+                    {/* Right: article count + Watch button */}
                     <div style={{ display:'flex', gap:6, alignItems:'center' }}>
                       {s.article_count > 0 && (
                         <span style={{ fontSize:10, color:'#6b7280', background:'#f3f4f6', padding:'2px 7px', borderRadius:20 }}>
@@ -140,7 +140,7 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
                       <button
                         onClick={e => {
                           e.stopPropagation();
-                          if (onWatchlist) onWatchlist(s.symbol);
+                          if (onWatchlist) onWatchlist(s); // ← pass full stock object
                           setView({ type: 'stock', symbol: s.symbol });
                           setQuery('');
                           setShowSuggestions(false);

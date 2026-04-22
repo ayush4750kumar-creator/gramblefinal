@@ -95,14 +95,19 @@ export default function Home() {
     setWatchlist([]);
   };
 
-  const onWatchlist = async (symbol, action) => {
-    const sym = symbol.toUpperCase();
+  // ── Watchlist toggle — accepts full stock object OR plain symbol string ───
+  const onWatchlist = async (stock, action) => {
+    const sym        = (typeof stock === 'string' ? stock : stock.symbol).toUpperCase();
+    const stockEntry = typeof stock === 'string' ? { symbol: sym } : stock;
+
     if (action === 'remove') {
       setWatchlist(prev => prev.filter(w => w.symbol !== sym));
       return;
     }
+
     const exists = watchlist.find(w => w.symbol === sym);
     if (exists) {
+      // Toggle off — remove from local state + backend
       setWatchlist(prev => prev.filter(w => w.symbol !== sym));
       if (user && token) {
         await fetch(`${API}/api/watchlist/${sym}`, {
@@ -110,7 +115,8 @@ export default function Home() {
         }).catch(() => {});
       }
     } else {
-      setWatchlist(prev => [...prev, { symbol: sym }]);
+      // Toggle on — optimistically add full object so name/exchange show in sidebar
+      setWatchlist(prev => [...prev, stockEntry]);
       if (user && token) {
         try {
           const res  = await fetch(`${API}/api/watchlist`, {
@@ -120,7 +126,9 @@ export default function Home() {
           });
           const data = await res.json();
           if (data.success) {
-            setWatchlist(prev => prev.map(w => w.symbol === sym ? { ...w, article_count: data.news?.length || 0 } : w));
+            setWatchlist(prev => prev.map(w =>
+              w.symbol === sym ? { ...stockEntry, article_count: data.news?.length || 0 } : w
+            ));
           }
         } catch (_) {}
       }
@@ -187,7 +195,7 @@ export default function Home() {
                       </div>
                       <div style={{ display:'flex', gap:6, alignItems:'center' }}>
                         <button
-                          onClick={e => { e.stopPropagation(); onWatchlist(s.symbol); }}
+                          onClick={e => { e.stopPropagation(); onWatchlist(s); }}  // ← pass full object
                           style={{ fontSize:10, background: watchlist.find(w=>w.symbol===s.symbol) ? '#dcfce7' : '#eff6ff', color: watchlist.find(w=>w.symbol===s.symbol) ? '#16a34a' : '#2563eb', border:'none', borderRadius:6, padding:'3px 8px', cursor:'pointer', fontWeight:600 }}
                         >
                           {watchlist.find(w => w.symbol === s.symbol) ? '✓ Added' : '+ Watch'}
@@ -260,6 +268,8 @@ export default function Home() {
         onLogout={handleLogout}
         onLogoClick={() => setView('feed')}
         setView={setView}
+        watchlist={watchlist}
+        onWatchlist={onWatchlist}
       />
       <div style={{ display:'grid', gridTemplateColumns:'300px 1fr 300px', overflow:'hidden', height:'100%', gap:10, padding:10 }}>
         <LeftSidebar user={user} token={token} watchlist={watchlist} setView={setView} view={view} onWatchlist={onWatchlist} />
