@@ -139,8 +139,11 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
                       )}
                       <button
                         onClick={e => {
-                          e.stopPropagation(); // don't trigger row click
+                          e.stopPropagation();
                           if (onWatchlist) onWatchlist(s.symbol);
+                          setView({ type: 'stock', symbol: s.symbol });
+                          setQuery('');
+                          setShowSuggestions(false);
                         }}
                         style={{
                           fontSize: 11,
@@ -150,7 +153,7 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
                           padding: '4px 10px', cursor: 'pointer', fontWeight: 700,
                         }}
                       >
-                        {inWatchlist ? '✓ Added' : '+ Add'}
+                        {inWatchlist ? '✓ Watching' : '+ Watch'}
                       </button>
                     </div>
                   </div>
