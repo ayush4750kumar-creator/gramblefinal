@@ -19,10 +19,10 @@ const EXCHANGE_TABS = [
   { key:'NYSE', label:'NYSE', color:'#16a34a' },
 ];
 const EXCHANGE_SOURCES = {
-  NSE: ['nse','nse_announcements','nse india','nseindia'],
-  BSE: ['bse','bse_announcements','bombay'],
-  NASDAQ: ['nasdaq'],
-  NYSE: ['nyse'],
+  NSE: ['nse','nse_announcements','nse india','nseindia','economic times','moneycontrol','livemint','business standard','ndtv','financial express','zeebiz'],
+  BSE: ['bse','bse_announcements','bombay','hindu business','cnbctv18'],
+  NASDAQ: ['nasdaq','techcrunch','the verge','wired','reuters','bloomberg','cnbc','marketwatch'],
+  NYSE: ['nyse','wall street','wsj','ap news','financial times','seeking alpha','yahoo finance'],
 };
 
 function isHindi(text) {
