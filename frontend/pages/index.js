@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Navbar from '../components/Navbar';
 import LeftSidebar from '../components/LeftSidebar';
 import Feed from '../components/Feed';
 import RightSidebar from '../components/RightSidebar';
+import LoginModal from '../components/LoginModal';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
@@ -18,10 +19,15 @@ function useIsMobile() {
 }
 
 export default function Home() {
-  const [user,      setUser]      = useState(null);
-  const [token,     setToken]     = useState(null);
-  const [view,      setView]      = useState('feed');
-  const [watchlist, setWatchlist] = useState([]);
+  const [user,            setUser]            = useState(null);
+  const [token,           setToken]           = useState(null);
+  const [view,            setView]            = useState('feed');
+  const [watchlist,       setWatchlist]       = useState([]);
+  const [showLogin,       setShowLogin]       = useState(false);
+  const [mobileQuery,     setMobileQuery]     = useState('');
+  const [mobileSuggests,  setMobileSuggests]  = useState([]);
+  const [showMobileDrop,  setShowMobileDrop]  = useState(false);
+  const mobileSearchRef = useRef(null);
   const isMobile = useIsMobile();
 
   // ── Restore session on page load ──────────────────────────────────────────
@@ -41,6 +47,29 @@ export default function Home() {
     }
   }, []);
 
+  // ── Close mobile dropdown on outside click ────────────────────────────────
+  useEffect(() => {
+    const handler = (e) => {
+      if (mobileSearchRef.current && !mobileSearchRef.current.contains(e.target)) {
+        setShowMobileDrop(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // ── Fetch mobile search suggestions ──────────────────────────────────────
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      try {
+        const res  = await fetch(`${API}/api/search/suggest?q=${encodeURIComponent(mobileQuery)}`);
+        const data = await res.json();
+        if (data.success) setMobileSuggests(data.data);
+      } catch (_) {}
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [mobileQuery]);
+
   // ── Load watchlist from backend ───────────────────────────────────────────
   const loadWatchlist = async (t) => {
     try {
@@ -52,33 +81,28 @@ export default function Home() {
     } catch (_) {}
   };
 
-  // ── Login handler ─────────────────────────────────────────────────────────
   const handleLogin = (u, t) => {
     setUser(u);
     setToken(t);
     loadWatchlist(t);
   };
 
-  // ── Logout handler ────────────────────────────────────────────────────────
   const handleLogout = () => {
+    localStorage.removeItem('gramble_token');
+    localStorage.removeItem('gramble_user');
     setUser(null);
     setToken(null);
     setWatchlist([]);
   };
 
-  // ── Add/remove watchlist item ─────────────────────────────────────────────
   const onWatchlist = async (symbol, action) => {
     const sym = symbol.toUpperCase();
-
     if (action === 'remove') {
       setWatchlist(prev => prev.filter(w => w.symbol !== sym));
       return;
     }
-
-    // Toggle
     const exists = watchlist.find(w => w.symbol === sym);
     if (exists) {
-      // Remove
       setWatchlist(prev => prev.filter(w => w.symbol !== sym));
       if (user && token) {
         await fetch(`${API}/api/watchlist/${sym}`, {
@@ -86,17 +110,15 @@ export default function Home() {
         }).catch(() => {});
       }
     } else {
-      // Add — optimistic update first
       setWatchlist(prev => [...prev, { symbol: sym }]);
       if (user && token) {
         try {
           const res  = await fetch(`${API}/api/watchlist`, {
             method:  'POST',
-            headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body:    JSON.stringify({ symbol: sym }),
           });
           const data = await res.json();
-          // If backend returned article count, update item
           if (data.success) {
             setWatchlist(prev => prev.map(w => w.symbol === sym ? { ...w, article_count: data.news?.length || 0 } : w));
           }
@@ -111,51 +133,95 @@ export default function Home() {
   if (isMobile) {
     return (
       <div style={{ height:'100vh', overflow:'hidden', background:'#f3f4f6', display:'flex', flexDirection:'column' }}>
-        <div style={{
-          background:'#fff', borderBottom:'1px solid #e5e7eb',
-          padding:'10px 14px', display:'flex', flexDirection:'column',
-          gap:10, flexShrink:0, zIndex:20,
-        }}>
+
+        <div style={{ background:'#fff', borderBottom:'1px solid #e5e7eb', padding:'10px 14px', display:'flex', flexDirection:'column', gap:10, flexShrink:0, zIndex:20 }}>
+
           {/* Row 1: Logo + Search + Account */}
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <span
-              onClick={() => setView('feed')}
-              style={{ fontSize:22, fontWeight:900, color:'#111', letterSpacing:'-0.5px', cursor:'pointer', fontFamily:'Georgia, serif', flexShrink:0 }}
-            >gramble<span style={{ color:'#2563eb' }}>.in</span></span>
+            <span onClick={() => setView('feed')}
+              style={{ fontSize:22, fontWeight:900, color:'#111', letterSpacing:'-0.5px', cursor:'pointer', flexShrink:0 }}>
+              gramble<span style={{ color:'#2563eb' }}>.in</span>
+            </span>
 
-            <div style={{ position:'relative', flex:1 }}>
-              <span style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', fontSize:12, color:'#9ca3af' }}>🔍</span>
+            {/* Mobile search with dropdown */}
+            <div ref={mobileSearchRef} style={{ position:'relative', flex:1 }}>
+              <span style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', fontSize:12, color:'#9ca3af', zIndex:1 }}>🔍</span>
               <input
                 placeholder="Search equity..."
-                style={{ width:'100%', padding:'7px 10px 7px 28px', borderRadius:24, border:'1.5px solid #e5e7eb', fontSize:12, background:'#f9fafb', color:'#111', outline:'none', boxSizing:'border-box' }}
+                value={mobileQuery}
+                onChange={e => setMobileQuery(e.target.value)}
+                onFocus={() => setShowMobileDrop(true)}
                 onKeyDown={e => {
-                  if (e.key === 'Enter' && e.target.value.trim()) {
-                    setView({ type:'stock', symbol: e.target.value.trim().toUpperCase() });
-                    e.target.value = '';
+                  if (e.key === 'Enter' && mobileQuery.trim()) {
+                    setView({ type: 'stock', symbol: mobileQuery.trim().toUpperCase() });
+                    setMobileQuery('');
+                    setShowMobileDrop(false);
                   }
                 }}
+                style={{ width:'100%', padding:'7px 10px 7px 28px', borderRadius:24, border:'1.5px solid #e5e7eb', fontSize:12, background:'#f9fafb', color:'#111', outline:'none', boxSizing:'border-box' }}
               />
+
+              {/* Suggestions dropdown */}
+              {showMobileDrop && mobileSuggests.length > 0 && (
+                <div style={{ position:'absolute', top:'110%', left:0, right:0, background:'#fff', border:'1px solid #e5e7eb', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', zIndex:300, overflow:'hidden', maxHeight:280, overflowY:'auto' }}>
+                  <div style={{ padding:'6px 12px 2px', fontSize:10, color:'#9ca3af', fontWeight:700, textTransform:'uppercase' }}>
+                    {mobileQuery ? 'Matches' : '🔥 Popular'}
+                  </div>
+                  {mobileSuggests.map(s => (
+                    <div key={s.symbol}
+                      style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 12px', borderTop:'1px solid #f3f4f6', cursor:'pointer' }}
+                      onClick={() => {
+                        setView({ type: 'stock', symbol: s.symbol });
+                        setMobileQuery('');
+                        setShowMobileDrop(false);
+                      }}
+                    >
+                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                        <div style={{ width:32, height:32, borderRadius:7, background:'#eff6ff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:10, color:'#2563eb' }}>
+                          {s.symbol.slice(0,3)}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight:700, fontSize:12, color:'#111' }}>{s.symbol}</div>
+                          <div style={{ fontSize:10, color:'#6b7280' }}>{s.name}</div>
+                        </div>
+                      </div>
+                      <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                        <button
+                          onClick={e => { e.stopPropagation(); onWatchlist(s.symbol); }}
+                          style={{ fontSize:10, background: watchlist.find(w=>w.symbol===s.symbol) ? '#dcfce7' : '#eff6ff', color: watchlist.find(w=>w.symbol===s.symbol) ? '#16a34a' : '#2563eb', border:'none', borderRadius:6, padding:'3px 8px', cursor:'pointer', fontWeight:600 }}
+                        >
+                          {watchlist.find(w => w.symbol === s.symbol) ? '✓ Added' : '+ Watch'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
+            {/* Account / Avatar */}
             {user ? (
-              <div style={{ width:32, height:32, borderRadius:'50%', background:'#2563eb', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, flexShrink:0 }}>
+              <div
+                onClick={handleLogout}
+                title="Tap to logout"
+                style={{ width:32, height:32, borderRadius:'50%', background:'#2563eb', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, flexShrink:0, cursor:'pointer' }}
+              >
                 {(user.display_name || user.email || 'U')[0].toUpperCase()}
               </div>
             ) : (
               <button
-                onClick={() => {/* LoginModal handled in Navbar */}}
+                onClick={() => setShowLogin(true)}
                 style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 12px', borderRadius:20, border:'1.5px solid #2563eb', background:'#fff', color:'#2563eb', fontSize:12, fontWeight:600, cursor:'pointer', flexShrink:0 }}
               >
-                <span>👤</span> Account
+                👤 Login
               </button>
             )}
           </div>
 
           {/* Row 2: Watchlist chips */}
           <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:2 }}>
-            <button
-              onClick={() => setView('feed')}
-              style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 16px', borderRadius:24, fontSize:13, fontWeight:700, background: view === 'feed' ? '#111' : '#f3f4f6', color: view === 'feed' ? '#fff' : '#374151', border:'none', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}
+            <button onClick={() => setView('feed')}
+              style={{ padding:'6px 16px', borderRadius:24, fontSize:13, fontWeight:700, background: view === 'feed' ? '#111' : '#f3f4f6', color: view === 'feed' ? '#fff' : '#374151', border:'none', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}
             >Global</button>
 
             {watchlist.map(w => (
@@ -170,6 +236,14 @@ export default function Home() {
         <div style={{ flex:1, overflowY:'auto' }}>
           <Feed user={user} token={token} view={view} setView={setView} onWatchlist={onWatchlist} watchlist={watchlist} />
         </div>
+
+        {/* Mobile login modal */}
+        {showLogin && (
+          <LoginModal
+            onClose={() => setShowLogin(false)}
+            onLogin={(u, t) => { handleLogin(u, t); setShowLogin(false); }}
+          />
+        )}
       </div>
     );
   }
@@ -188,22 +262,8 @@ export default function Home() {
         setView={setView}
       />
       <div style={{ display:'grid', gridTemplateColumns:'300px 1fr 300px', overflow:'hidden', height:'100%', gap:10, padding:10 }}>
-        <LeftSidebar
-          user={user}
-          token={token}
-          watchlist={watchlist}
-          setView={setView}
-          view={view}
-          onWatchlist={onWatchlist}
-        />
-        <Feed
-          user={user}
-          token={token}
-          view={view}
-          setView={setView}
-          onWatchlist={onWatchlist}
-          watchlist={watchlist}
-        />
+        <LeftSidebar user={user} token={token} watchlist={watchlist} setView={setView} view={view} onWatchlist={onWatchlist} />
+        <Feed user={user} token={token} view={view} setView={setView} onWatchlist={onWatchlist} watchlist={watchlist} />
         <RightSidebar setView={setView} />
       </div>
     </div>
