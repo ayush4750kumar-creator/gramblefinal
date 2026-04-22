@@ -319,7 +319,7 @@ def get_backlog() -> list:
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
         SELECT id, title, full_text, url FROM articles
-        WHERE (is_ready IS NULL OR is_ready = false)
+        WHERE (summary_60w IS NULL OR summary_60w = '')
         AND (is_duplicate IS NULL OR is_duplicate = false)
         ORDER BY created_at DESC LIMIT 50
     """)
