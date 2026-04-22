@@ -321,7 +321,7 @@ def get_backlog() -> list:
         SELECT id, title, full_text, url FROM articles
         WHERE (summary_60w IS NULL OR summary_60w = '')
         AND (is_duplicate IS NULL OR is_duplicate = false)
-        ORDER BY created_at DESC LIMIT 50
+        ORDER BY created_at DESC LIMIT 200
     """)
     rows = [dict(r) for r in cur.fetchall()]
     cur.close()
