@@ -191,11 +191,16 @@ def mark_ready(symbol: str):
 
 
 def run(symbol: str = None) -> int:
-    # ... existing fetch code ...
-    saved = save_articles(all_articles)
-    print(f"  ✅ AgentWatchlist done — {len(all_articles)} total, {saved} new saved\n")
-    # DO NOT mark_ready here anymore — pipeline.py does it after AgentY
-    return saved
+    if symbol:
+        symbols = [symbol.upper()]
+        print(f"  📋 Watchlist: fetching for {symbol}")
+    else:
+        symbols = get_all_watchlist_symbols()
+        print(f"  📋 Watchlist: {len(symbols)} symbols — {', '.join(symbols[:10])}{'...' if len(symbols) > 10 else ''}")
+
+    if not symbols:
+        print("  ℹ  No watchlist symbols found.")
+        return 0
 
     all_articles = []
     for sym in symbols:
@@ -206,11 +211,6 @@ def run(symbol: str = None) -> int:
 
     saved = save_articles(all_articles)
     print(f"  ✅ AgentWatchlist done — {len(all_articles)} total, {saved} new saved\n")
-
-    # ── Mark ready so /api/news can see them immediately ──────────────────
-    for sym in symbols:
-        mark_ready(sym)
-
     return saved
 
 
