@@ -3,20 +3,18 @@ import LoginModal from './LoginModal';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
-export default function Navbar({ user, onLogin, onLogout, onLogoClick, setView }) {
-  const [showLogin,      setShowLogin]      = useState(false);
-  const [query,          setQuery]          = useState('');
-  const [suggestions,    setSuggestions]    = useState([]);
-  const [showSuggestions,setShowSuggestions]= useState(false);
-  const [loadingSuggest, setLoadingSuggest] = useState(false);
+export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, setView, watchlist = [], onWatchlist }) {
+  const [showLogin,       setShowLogin]       = useState(false);
+  const [query,           setQuery]           = useState('');
+  const [suggestions,     setSuggestions]     = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const searchRef = useRef(null);
 
-  // Close suggestions when clicking outside
+  // Close on outside click
   useEffect(() => {
     const handler = (e) => {
-      if (searchRef.current && !searchRef.current.contains(e.target)) {
+      if (searchRef.current && !searchRef.current.contains(e.target))
         setShowSuggestions(false);
-      }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -25,13 +23,11 @@ export default function Navbar({ user, onLogin, onLogout, onLogoClick, setView }
   // Fetch suggestions with debounce
   useEffect(() => {
     const timer = setTimeout(async () => {
-      setLoadingSuggest(true);
       try {
         const res  = await fetch(`${API}/api/search/suggest?q=${encodeURIComponent(query)}`);
         const data = await res.json();
         if (data.success) setSuggestions(data.data);
       } catch (_) {}
-      setLoadingSuggest(false);
     }, 200);
     return () => clearTimeout(timer);
   }, [query]);
@@ -46,7 +42,8 @@ export default function Navbar({ user, onLogin, onLogout, onLogoClick, setView }
     }
   };
 
-  const handleSelect = (stock) => {
+  // Clicking a row opens the stock news
+  const handleRowClick = (stock) => {
     setView({ type: 'stock', symbol: stock.symbol });
     setQuery('');
     setShowSuggestions(false);
@@ -70,7 +67,7 @@ export default function Navbar({ user, onLogin, onLogout, onLogoClick, setView }
           gramble<span style={{ color:'#3b82f6' }}>.in</span>
         </button>
 
-        {/* ── Search bar with suggestions ── */}
+        {/* ── Search bar ── */}
         <div ref={searchRef} style={{ position:'relative', flex:1, maxWidth:460 }}>
           <input
             type="text"
@@ -104,40 +101,61 @@ export default function Navbar({ user, onLogin, onLogout, onLogoClick, setView }
               <div style={{ padding: '8px 12px 4px', fontSize: 11, color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 {query ? 'Matches' : '🔥 Popular Stocks'}
               </div>
-              {suggestions.map(s => (
-                <div key={s.symbol} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '10px 14px', cursor: 'pointer',
-                  borderTop: '1px solid #f3f4f6',
-                  transition: 'background 0.1s',
-                }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
-                  onMouseLeave={e => e.currentTarget.style.background = '#fff'}
-                >
-                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                    <div style={{
-                      width: 36, height: 36, borderRadius: 8,
-                      background: '#eff6ff', display:'flex', alignItems:'center',
-                      justifyContent:'center', fontWeight:700, fontSize:11, color:'#2563eb',
-                    }}>{s.symbol.slice(0,3)}</div>
-                    <div>
-                      <div style={{ fontWeight:700, fontSize:13, color:'#111' }}>{s.symbol}</div>
-                      <div style={{ fontSize:11, color:'#6b7280' }}>{s.name} · {s.exchange}</div>
+
+              {suggestions.map(s => {
+                const inWatchlist = (watchlist || []).find(w => w.symbol === s.symbol);
+                return (
+                  <div
+                    key={s.symbol}
+                    onClick={() => handleRowClick(s)}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '10px 14px', cursor: 'pointer',
+                      borderTop: '1px solid #f3f4f6',
+                      transition: 'background 0.1s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
+                    onMouseLeave={e => e.currentTarget.style.background = '#fff'}
+                  >
+                    {/* Left: icon + name */}
+                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <div style={{
+                        width: 36, height: 36, borderRadius: 8,
+                        background: '#eff6ff', display:'flex', alignItems:'center',
+                        justifyContent:'center', fontWeight:700, fontSize:11, color:'#2563eb',
+                      }}>{s.symbol.slice(0, 3)}</div>
+                      <div>
+                        <div style={{ fontWeight:700, fontSize:13, color:'#111' }}>{s.symbol}</div>
+                        <div style={{ fontSize:11, color:'#6b7280' }}>{s.name} · {s.exchange}</div>
+                      </div>
+                    </div>
+
+                    {/* Right: article count + Add button */}
+                    <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                      {s.article_count > 0 && (
+                        <span style={{ fontSize:10, color:'#6b7280', background:'#f3f4f6', padding:'2px 7px', borderRadius:20 }}>
+                          {s.article_count} articles
+                        </span>
+                      )}
+                      <button
+                        onClick={e => {
+                          e.stopPropagation(); // don't trigger row click
+                          if (onWatchlist) onWatchlist(s.symbol);
+                        }}
+                        style={{
+                          fontSize: 11,
+                          background: inWatchlist ? '#dcfce7' : '#eff6ff',
+                          color:      inWatchlist ? '#16a34a' : '#2563eb',
+                          border: 'none', borderRadius: 6,
+                          padding: '4px 10px', cursor: 'pointer', fontWeight: 700,
+                        }}
+                      >
+                        {inWatchlist ? '✓ Added' : '+ Add'}
+                      </button>
                     </div>
                   </div>
-                  <div style={{ display:'flex', gap:6 }}>
-                    {s.article_count > 0 && (
-                      <span style={{ fontSize:10, color:'#6b7280', background:'#f3f4f6', padding:'2px 7px', borderRadius:20 }}>
-                        {s.article_count} articles
-                      </span>
-                    )}
-                    <button
-                      onClick={() => handleSelect(s)}
-                      style={{ fontSize:11, background:'#eff6ff', color:'#2563eb', border:'none', borderRadius:6, padding:'4px 10px', cursor:'pointer', fontWeight:600 }}
-                    >View</button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -150,20 +168,15 @@ export default function Navbar({ user, onLogin, onLogout, onLogoClick, setView }
 
         {user ? (
           <div style={{ display:'flex', alignItems:'center', gap:8, marginLeft:'auto' }}>
-            <div style={{
-              width:32, height:32, borderRadius:'50%', background:'#2563eb',
-              color:'#fff', display:'flex', alignItems:'center', justifyContent:'center',
-              fontSize:13, fontWeight:700,
-            }}>{(user.display_name || user.email || 'U')[0].toUpperCase()}</div>
+            <div style={{ width:32, height:32, borderRadius:'50%', background:'#2563eb', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700 }}>
+              {(user.display_name || user.email || 'U')[0].toUpperCase()}
+            </div>
             <button onClick={handleLogout} style={{ background:'none', border:'1px solid #e5e7eb', color:'#6b7280', padding:'5px 12px', borderRadius:8, fontSize:12, cursor:'pointer' }}>
               Logout
             </button>
           </div>
         ) : (
-          <button
-            onClick={() => setShowLogin(true)}
-            style={{ marginLeft:'auto', background:'#fff', border:'1px solid #e5e7eb', color:'#374151', padding:'7px 18px', borderRadius:8, fontSize:14, cursor:'pointer', fontWeight:500 }}
-          >
+          <button onClick={() => setShowLogin(true)} style={{ marginLeft:'auto', background:'#fff', border:'1px solid #e5e7eb', color:'#374151', padding:'7px 18px', borderRadius:8, fontSize:14, cursor:'pointer', fontWeight:500 }}>
             👤 Account
           </button>
         )}
@@ -172,7 +185,7 @@ export default function Navbar({ user, onLogin, onLogout, onLogoClick, setView }
       {showLogin && (
         <LoginModal
           onClose={() => setShowLogin(false)}
-          onLogin={(u, token) => { onLogin(u, token); setShowLogin(false); }}
+          onLogin={(u, t) => { onLogin(u, t); setShowLogin(false); }}
         />
       )}
     </>
