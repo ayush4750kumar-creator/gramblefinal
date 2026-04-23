@@ -10,8 +10,8 @@ from datetime import datetime
 from db_utils import migrate, get_conn
 
 import agentX, agentY, agentZ, agentBacklog, agentWatchlist
-from groq_pool import SEARCH_POOL  # ← NEW
-import healthcheck; healthcheck.start()
+from groq_pool import SEARCH_POOL
+import healthcheck  # import only — start() called after run_for_symbol is defined
 
 BANNER = """
 ╔══════════════════════════════════════════════════════╗
@@ -19,9 +19,8 @@ BANNER = """
 ║  X(fetch) → Y(tag) → Z(dedup) → W(watchlist) → AI   ║
 ╚══════════════════════════════════════════════════════╝"""
 
-# ── Dedup guard: prevent same symbol running twice at once ────────────────────
-_running_symbols: set = set()          # ← NEW
-_running_lock = threading.Lock()       # ← NEW
+_running_symbols: set = set()
+_running_lock = threading.Lock()
 
 
 def clear_all_articles():
@@ -37,12 +36,11 @@ def clear_all_articles():
 def run_for_symbol(symbol: str):
     symbol = symbol.upper()
 
-    # ── Guard: skip if already running ───────────────────────────────────────
-    with _running_lock:                                    # ← NEW
-        if symbol in _running_symbols:                    # ← NEW
+    with _running_lock:
+        if symbol in _running_symbols:
             print(f"⏭  {symbol} already running — skipping duplicate trigger")
-            return                                         # ← NEW
-        _running_symbols.add(symbol)                      # ← NEW
+            return
+        _running_symbols.add(symbol)
 
     try:
         ts = datetime.now().strftime('%d %b %Y, %H:%M:%S')
@@ -52,28 +50,23 @@ def run_for_symbol(symbol: str):
         t_total = time.time()
 
         try:
-            # Step 1: Fetch articles for this symbol
             t = time.time()
             fetched = agentWatchlist.run(symbol=symbol)
             print(f"  ⏱  Watchlist fetch:    {time.time()-t:.1f}s  ({fetched} new articles)")
 
-            # Step 2: Tag BEFORE marking ready so AgentY can find untagged articles
             t = time.time()
             tagged = agentY.run(limit=50)
             print(f"  ⏱  Tag layer:          {time.time()-t:.1f}s  ({tagged} tagged)")
 
-            # Step 3: Now mark ready so frontend can see them
             from agentWatchlist import mark_ready
             mark_ready(symbol)
 
-            # Step 4: Dedup
             t = time.time()
             duped = agentZ.run(hours=48)
             print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
 
-            # Step 5: AI backlog — use SEARCH_POOL (3 dedicated keys)  ← NEW
             t = time.time()
-            backlog_done = agentBacklog.run(pool=SEARCH_POOL)             # ← NEW
+            backlog_done = agentBacklog.run(pool=SEARCH_POOL)
             print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
 
             print(f"\n✅ Symbol pipeline for {symbol} complete in {time.time()-t_total:.1f}s\n")
@@ -82,8 +75,8 @@ def run_for_symbol(symbol: str):
             print(f"\n⚠  Symbol pipeline error for {symbol}: {e}\n")
 
     finally:
-        with _running_lock:            # ← NEW
-            _running_symbols.discard(symbol)  # ← NEW
+        with _running_lock:
+            _running_symbols.discard(symbol)
 
 
 def run_once():
@@ -99,7 +92,6 @@ def run_once():
         print(f"  ⏱  Fetch layer:        {time.time()-t:.1f}s  ({fetched} new articles)")
     except Exception as e:
         print(f"  ⚠  Fetch layer error: {e}")
-        fetched = 0
 
     try:
         t = time.time()
@@ -124,12 +116,17 @@ def run_once():
 
     try:
         t = time.time()
-        backlog_done = agentBacklog.run()  # main pipeline keeps MAIN_POOL (default)
+        backlog_done = agentBacklog.run()
         print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
     except Exception as e:
         print(f"  ⚠  Backlog layer error: {e}")
 
     print(f"\n✅ Pipeline complete in {time.time()-t_total:.1f}s\n")
+
+
+# ── Wire trigger AFTER run_for_symbol is defined ──────────────────────────────
+healthcheck.set_trigger(run_for_symbol)
+healthcheck.start()
 
 
 def main():
