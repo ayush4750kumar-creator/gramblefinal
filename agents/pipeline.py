@@ -10,6 +10,7 @@ from datetime import datetime
 from db_utils import migrate, get_conn
 
 import agentX, agentY, agentZ, agentBacklog, agentWatchlist
+from groq_pool import SEARCH_POOL  # ← NEW
 import healthcheck; healthcheck.start()
 
 BANNER = """
@@ -17,6 +18,10 @@ BANNER = """
 ║         S T A R K  N E W S  P I P E L I N E         ║
 ║  X(fetch) → Y(tag) → Z(dedup) → W(watchlist) → AI   ║
 ╚══════════════════════════════════════════════════════╝"""
+
+# ── Dedup guard: prevent same symbol running twice at once ────────────────────
+_running_symbols: set = set()          # ← NEW
+_running_lock = threading.Lock()       # ← NEW
 
 
 def clear_all_articles():
@@ -31,41 +36,54 @@ def clear_all_articles():
 
 def run_for_symbol(symbol: str):
     symbol = symbol.upper()
-    ts = datetime.now().strftime('%d %b %Y, %H:%M:%S')
-    print(f"\n{'─'*55}")
-    print(f"🔍 Symbol pipeline for {symbol}: {ts}")
-    print(f"{'─'*55}")
-    t_total = time.time()
+
+    # ── Guard: skip if already running ───────────────────────────────────────
+    with _running_lock:                                    # ← NEW
+        if symbol in _running_symbols:                    # ← NEW
+            print(f"⏭  {symbol} already running — skipping duplicate trigger")
+            return                                         # ← NEW
+        _running_symbols.add(symbol)                      # ← NEW
 
     try:
-        # Step 1: Fetch articles for this symbol
-        t = time.time()
-        fetched = agentWatchlist.run(symbol=symbol)
-        print(f"  ⏱  Watchlist fetch:    {time.time()-t:.1f}s  ({fetched} new articles)")
+        ts = datetime.now().strftime('%d %b %Y, %H:%M:%S')
+        print(f"\n{'─'*55}")
+        print(f"🔍 Symbol pipeline for {symbol}: {ts}")
+        print(f"{'─'*55}")
+        t_total = time.time()
 
-        # Step 2: Tag BEFORE marking ready so AgentY can find untagged articles
-        t = time.time()
-        tagged = agentY.run(limit=50)
-        print(f"  ⏱  Tag layer:          {time.time()-t:.1f}s  ({tagged} tagged)")
+        try:
+            # Step 1: Fetch articles for this symbol
+            t = time.time()
+            fetched = agentWatchlist.run(symbol=symbol)
+            print(f"  ⏱  Watchlist fetch:    {time.time()-t:.1f}s  ({fetched} new articles)")
 
-        # Step 3: Now mark ready so frontend can see them
-        from agentWatchlist import mark_ready
-        mark_ready(symbol)
+            # Step 2: Tag BEFORE marking ready so AgentY can find untagged articles
+            t = time.time()
+            tagged = agentY.run(limit=50)
+            print(f"  ⏱  Tag layer:          {time.time()-t:.1f}s  ({tagged} tagged)")
 
-        # Step 4: Dedup
-        t = time.time()
-        duped = agentZ.run(hours=48)
-        print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
+            # Step 3: Now mark ready so frontend can see them
+            from agentWatchlist import mark_ready
+            mark_ready(symbol)
 
-        # Step 5: AI backlog
-        t = time.time()
-        backlog_done = agentBacklog.run()
-        print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
+            # Step 4: Dedup
+            t = time.time()
+            duped = agentZ.run(hours=48)
+            print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
 
-        print(f"\n✅ Symbol pipeline for {symbol} complete in {time.time()-t_total:.1f}s\n")
+            # Step 5: AI backlog — use SEARCH_POOL (3 dedicated keys)  ← NEW
+            t = time.time()
+            backlog_done = agentBacklog.run(pool=SEARCH_POOL)             # ← NEW
+            print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
 
-    except Exception as e:
-        print(f"\n⚠  Symbol pipeline error for {symbol}: {e}\n")
+            print(f"\n✅ Symbol pipeline for {symbol} complete in {time.time()-t_total:.1f}s\n")
+
+        except Exception as e:
+            print(f"\n⚠  Symbol pipeline error for {symbol}: {e}\n")
+
+    finally:
+        with _running_lock:            # ← NEW
+            _running_symbols.discard(symbol)  # ← NEW
 
 
 def run_once():
@@ -106,7 +124,7 @@ def run_once():
 
     try:
         t = time.time()
-        backlog_done = agentBacklog.run()
+        backlog_done = agentBacklog.run()  # main pipeline keeps MAIN_POOL (default)
         print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
     except Exception as e:
         print(f"  ⚠  Backlog layer error: {e}")
@@ -133,9 +151,6 @@ def main():
     if args.symbol:
         run_for_symbol(args.symbol)
         return
-
-    # NOTE: /trigger endpoint is handled by healthcheck.py on port 8080 (public)
-    # No separate trigger server needed here.
 
     if args.loop:
         print(f"\n⏰ Loop mode: every {args.interval} minutes. Ctrl+C to stop.\n")

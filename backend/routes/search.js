@@ -14,19 +14,37 @@ async function triggerPipeline(symbol) {
   }
   recentTriggers.set(symbol, now);
 
-  console.log(`🔥 Triggering pipeline for ${symbol} via HTTP → ${PIPELINE_URL}`);
-  try {
-    const res = await fetch(`${PIPELINE_URL}/trigger`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ symbol }),
-      signal:  AbortSignal.timeout(5000),
-    });
-    console.log(`[pipeline][${symbol}] trigger response: ${res.status}`);
-  } catch (e) {
-    console.error(`[pipeline][${symbol}] trigger failed: ${e.message}`);
-  }
+  // Fire-and-forget GET to /trigger-search — don't await the pipeline work
+  console.log(`🔥 Triggering search pipeline for ${symbol} → ${PIPELINE_URL}`);
+  fetch(`${PIPELINE_URL}/trigger-search?symbol=${encodeURIComponent(symbol)}`, {
+    signal: AbortSignal.timeout(5000),
+  }).then(r => {
+    console.log(`[pipeline][${symbol}] trigger-search response: ${r.status}`);
+  }).catch(e => {
+    console.error(`[pipeline][${symbol}] trigger-search failed: ${e.message}`);
+  });
 }
+
+// Poll DB until we have at least minCount articles or timeout
+async function waitForArticles(symbol, minCount = 5, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query(
+      `SELECT COUNT(*) as count FROM articles
+       WHERE symbol = $1
+         AND published_at >= NOW() - INTERVAL '7 days'
+         AND (is_duplicate IS NULL OR is_duplicate = false)
+         AND is_ready = true`,
+      [symbol]
+    );
+    const count = parseInt(result.rows[0].count);
+    if (count >= minCount) return count;
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  return 0;
+}
+
+// ── rest of file unchanged ────────────────────────────────────────────────────
 
 async function yahooSearch(q) {
   try {
@@ -161,7 +179,8 @@ router.get('/news', async (req, res) => {
   console.log(`🔍 /api/search/news hit for: ${symbol}`);
 
   try {
-    const result = await pool.query(
+    // Check what we already have
+    const existing = await pool.query(
       `SELECT id, symbol, title, url, source, tag_source_name,
               published_at, summary_60w, full_text, image_url,
               tag_feed, tag_category, sentiment_label, sentiment_reason
@@ -175,10 +194,35 @@ router.get('/news', async (req, res) => {
       [symbol]
     );
 
-    console.log(`📊 Found ${result.rows.length} existing articles for ${symbol}`);
+    console.log(`📊 Found ${existing.rows.length} existing articles for ${symbol}`);
+
+    // Always fire the trigger (it has its own 30s dedup guard)
     triggerPipeline(symbol);
 
-    res.json({ success: true, data: result.rows, fetching: true });
+    // If we have fewer than 5, wait up to 15s for the pipeline to deliver more
+    if (existing.rows.length < 5) {
+      console.log(`⏳ Only ${existing.rows.length} articles — waiting for pipeline...`);
+      await waitForArticles(symbol, 5, 15000);
+
+      // Fetch again after waiting
+      const fresh = await pool.query(
+        `SELECT id, symbol, title, url, source, tag_source_name,
+                published_at, summary_60w, full_text, image_url,
+                tag_feed, tag_category, sentiment_label, sentiment_reason
+         FROM articles
+         WHERE symbol = $1
+           AND published_at >= NOW() - INTERVAL '7 days'
+           AND (is_duplicate IS NULL OR is_duplicate = false)
+           AND is_ready = true
+         ORDER BY published_at DESC
+         LIMIT 30`,
+        [symbol]
+      );
+      return res.json({ success: true, data: fresh.rows, fetching: false });
+    }
+
+    res.json({ success: true, data: existing.rows, fetching: false });
+
   } catch (err) {
     console.error(`/api/search/news error: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });

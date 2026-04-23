@@ -9,6 +9,8 @@ def get_conn():
 def migrate():
     conn = get_conn()
     cur = conn.cursor()
+
+    # ── Main articles table ───────────────────────────────────────────────────
     cur.execute("""
         CREATE TABLE IF NOT EXISTS articles (
             id              SERIAL PRIMARY KEY,
@@ -37,9 +39,63 @@ def migrate():
         -- Fix existing articles that got 'news' as default — reset so AgentY can re-tag them
         ALTER TABLE articles ALTER COLUMN tag_category DROP DEFAULT;
     """)
+
+    # ── Searched symbols table (NEW) ─────────────────────────────────────────
+    # Tracks every stock symbol a user has searched for.
+    # Used by the search pipeline loop to keep refreshing searched stocks every 5 min.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS searched_symbols (
+            symbol           TEXT PRIMARY KEY,
+            last_searched_at TIMESTAMPTZ DEFAULT NOW(),
+            search_count     INT DEFAULT 1
+        );
+    """)
+
     conn.commit()
     cur.close(); conn.close()
     print('✅ DB migrated')
+
+
+# ── Search tracking ───────────────────────────────────────────────────────────
+
+def record_search(symbol: str):
+    """
+    Upsert a searched symbol.
+    If it already exists, bumps the count and updates the timestamp.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO searched_symbols (symbol, last_searched_at, search_count)
+        VALUES (%s, NOW(), 1)
+        ON CONFLICT (symbol) DO UPDATE
+            SET last_searched_at = NOW(),
+                search_count = searched_symbols.search_count + 1;
+    """, (symbol,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_recently_searched(hours: int = 24) -> list:
+    """
+    Returns all symbols searched in the last N hours.
+    Used by the search pipeline loop in pipeline.py.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT symbol FROM searched_symbols
+        WHERE last_searched_at > NOW() - INTERVAL '%s hours'
+        ORDER BY last_searched_at DESC;
+    """ % hours)
+    symbols = [row[0] for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return symbols
+
+
+# ── Article helpers ───────────────────────────────────────────────────────────
 
 def is_financial_article(title, text=""):
     combined = (title + " " + (text or "")).lower()
@@ -150,9 +206,9 @@ def delete_old_articles():
     conn.close()
     return deleted
 
-
 def mark_articles_ready():
     pass
+
 
 # ── Financial relevance filter ────────────────────────────────────────────────
 FINANCIAL_KEYWORDS = [
