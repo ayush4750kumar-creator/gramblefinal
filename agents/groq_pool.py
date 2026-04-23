@@ -20,7 +20,6 @@ class GroqKeyPool:
         self._lock  = threading.Lock()
 
     def next_key(self) -> str:
-        """Returns the next key in round-robin order. Thread-safe."""
         with self._lock:
             key = self._keys[self._index % len(self._keys)]
             self._index += 1
@@ -31,6 +30,22 @@ class GroqKeyPool:
 
     def __repr__(self):
         return f"GroqKeyPool({len(self._keys)} keys)"
+
+
+def _load_main() -> list:
+    """Load main pool keys from GROQ_API_KEY_1 … GROQ_API_KEY_8."""
+    keys = []
+    for i in range(1, 9):
+        val = os.getenv(f"GROQ_API_KEY_{i}", "").strip()
+        if val:
+            keys.append(val)
+    if not keys:
+        single = os.getenv("GROQ_API_KEY", "").strip()
+        if single:
+            keys.append(single)
+    if not keys:
+        print("⚠  WARNING: No keys found for MAIN_POOL (GROQ_API_KEY_1 … GROQ_API_KEY_8)")
+    return keys
 
 
 def _load(env_var: str) -> list:
@@ -44,24 +59,13 @@ def _load(env_var: str) -> list:
 
 # ── Two independent pools ─────────────────────────────────────────────────────
 
-# Main pipeline pool — fed by GROQ_API_KEYS (your existing 8 keys)
-MAIN_POOL = GroqKeyPool(_load("GROQ_API_KEYS") or ["placeholder"])
-
-# Search pipeline pool — fed by GROQ_SEARCH_API_KEYS (your 3 new keys)
+MAIN_POOL   = GroqKeyPool(_load_main() or ["placeholder"])
 SEARCH_POOL = GroqKeyPool(_load("GROQ_SEARCH_API_KEYS") or ["placeholder"])
 
 
 # ── Helper: call Groq with auto-retry across keys on rate limit ───────────────
 
 def call_with_pool(pool: GroqKeyPool, fn, retries: int = 3):
-    """
-    Calls fn(api_key) rotating to the next key on rate limit errors.
-
-    Usage:
-        result = call_with_pool(SEARCH_POOL, lambda key:
-            groq.Client(api_key=key).chat.completions.create(...)
-        )
-    """
     last_error = None
     for attempt in range(retries):
         api_key = pool.next_key()
@@ -70,10 +74,10 @@ def call_with_pool(pool: GroqKeyPool, fn, retries: int = 3):
         except Exception as e:
             err_str = str(e).lower()
             if "rate limit" in err_str or "429" in err_str:
-                wait = 2 ** attempt  # 1s, 2s, 4s
+                wait = 2 ** attempt
                 print(f"⚠  Rate limit on key ...{api_key[-6:]}, retrying in {wait}s (attempt {attempt+1}/{retries})")
                 time.sleep(wait)
                 last_error = e
             else:
-                raise  # non-rate-limit errors bubble up immediately
+                raise
     raise RuntimeError(f"All {retries} retries exhausted. Last error: {last_error}")
