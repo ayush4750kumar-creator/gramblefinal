@@ -22,6 +22,9 @@ BANNER = """
 _running_symbols: set = set()
 _running_lock = threading.Lock()
 
+# ✅ Flag to pause main backlog when a symbol search is active
+_search_running = threading.Event()
+
 
 def clear_all_articles():
     conn = get_conn()
@@ -38,11 +41,9 @@ def add_to_watchlist(symbol: str):
     try:
         conn = get_conn()
         cur  = conn.cursor()
-        # Get all user IDs
         cur.execute("SELECT DISTINCT user_id FROM watchlists")
         user_ids = [r[0] for r in cur.fetchall()]
         if not user_ids:
-            # No users yet — still save it with a default user_id of 0
             user_ids = [0]
         for uid in user_ids:
             cur.execute("""
@@ -67,13 +68,16 @@ def run_for_symbol(symbol: str):
             return
         _running_symbols.add(symbol)
 
+    # ✅ Signal main pipeline to pause its backlog
+    _search_running.set()
+
     try:
         # ✅ 1. Save to searched_symbols DB immediately
         from db_utils import record_search
         record_search(symbol)
         print(f"  💾 Saved {symbol} to searched_symbols")
 
-        # ✅ 2. Add to watchlist for all users
+        # ✅ 2. Add to all users' watchlists
         add_to_watchlist(symbol)
 
         ts = datetime.now().strftime('%d %b %Y, %H:%M:%S')
@@ -95,12 +99,12 @@ def run_for_symbol(symbol: str):
             duped = agentZ.run(hours=48)
             print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
 
-            # ✅ 3. Backlog FIRST with limit=5, THEN mark_ready
+            # ✅ 3. Backlog FIRST, limit=5, SEARCH_POOL (separate keys)
             t = time.time()
             backlog_done = agentBacklog.run(pool=SEARCH_POOL, symbol=symbol, limit=5)
             print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
 
-            # ✅ 4. Only NOW mark articles ready — site shows them with summaries
+            # ✅ 4. Only NOW mark ready — site shows articles with summaries
             from agentWatchlist import mark_ready
             mark_ready(symbol)
 
@@ -112,6 +116,9 @@ def run_for_symbol(symbol: str):
     finally:
         with _running_lock:
             _running_symbols.discard(symbol)
+            # ✅ Clear pause flag only when ALL symbol searches are done
+            if not _running_symbols:
+                _search_running.clear()
 
 
 def run_once():
@@ -163,6 +170,12 @@ def run_once():
                     print(f"     ⚠ {sym} error: {e}")
     except Exception as e:
         print(f"  ⚠  Searched symbols refresh error: {e}")
+
+    # ✅ Wait for any active symbol search before running main backlog
+    if _search_running.is_set():
+        print(f"  ⏸  Search pipeline active — waiting before main backlog...")
+        _search_running.wait()
+        print(f"  ▶️  Search done — resuming main backlog")
 
     try:
         t = time.time()
