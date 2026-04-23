@@ -1,37 +1,22 @@
 """
-agentBacklog.py — Parallel Backlog Processor (FIXED v2)
+agentBacklog.py — Parallel Backlog Processor (FIXED v3)
 
-Fixes applied:
-1. Full-text scraping — fetches actual article content when full_text is empty
-2. Increased token window — sends up to 3000 chars to Groq instead of 1200
-3. Better rate limit handling — exponential backoff, skips exhausted keys
-4. Smarter sleep — 1.5s instead of 2s (still safe at 30 RPM free tier)
-5. Error logging — prints why articles fail instead of silent None
-6. Key health tracking — marks a key as dead after 3 consecutive 429s
-7. LIMIT 50 newest first — prevents backlog overload, clears run by run
-8. Content sanitization — strips null bytes, non-printable chars, normalizes unicode
-9. 400 error body logging — prints Groq's rejection reason for debugging
+Changes from v2:
+- Now accepts an optional `pool` parameter (GroqKeyPool) in run()
+- MAIN_POOL is the default → main pipeline behaviour unchanged
+- SEARCH_POOL is passed in by run_for_symbol() → search uses its own 3 keys
+- Internal key loading kept as fallback if groq_pool is unavailable
 """
 import sys, os, time, json, threading, re, unicodedata
 sys.path.insert(0, os.path.dirname(__file__))
 
 from db_utils import get_conn
+from groq_pool import MAIN_POOL, GroqKeyPool
 import requests
 import psycopg2.extras
 
 GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.1-8b-instant"
-
-# Supports up to 50 keys automatically (picks up GROQ_API_KEY_1 ... GROQ_API_KEY_50)
-GROQ_KEYS = [k for k in [
-    os.environ.get(f"GROQ_API_KEY_{i}", "") for i in range(1, 51)
-] if k]
-
-# Fallback to single key if numbered keys not set
-if not GROQ_KEYS:
-    single = os.environ.get("GROQ_API_KEY", "")
-    if single:
-        GROQ_KEYS = [single]
 
 
 # ── Content sanitizer ─────────────────────────────────────────────────────────
@@ -40,16 +25,12 @@ def sanitize(text: str) -> str:
     """Remove null bytes, non-printable chars, and normalize unicode."""
     if not text:
         return ""
-    # Remove null bytes
     text = text.replace("\x00", "")
-    # Remove control characters except newline and tab
     text = "".join(
         c for c in text
         if unicodedata.category(c) != "Cc" or c in ("\n", "\t")
     )
-    # Normalize unicode (e.g. ligatures, fancy quotes → ASCII-safe forms)
     text = unicodedata.normalize("NFKD", text)
-    # Collapse excessive whitespace
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
@@ -72,12 +53,9 @@ def scrape_article_text(url: str) -> str:
         if r.status_code != 200:
             return ""
         text = r.text
-        # Remove script/style blocks
         text = re.sub(r'<script[^>]*>.*?</script>', ' ', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<style[^>]*>.*?</style>',  ' ', text, flags=re.DOTALL | re.IGNORECASE)
-        # Remove all remaining HTML tags
         text = re.sub(r'<[^>]+>', ' ', text)
-        # Collapse whitespace
         text = re.sub(r'\s+', ' ', text).strip()
         return text[:5000]
     except Exception:
@@ -148,7 +126,6 @@ def groq_call(key: str, prompt: str, agent_id: int) -> str:
             )
 
             if r.status_code == 400:
-                # Log the full rejection reason so we can debug content issues
                 print(f"  ❌ Agent {agent_id}: 400 Bad Request — {r.text[:400]}")
                 return ""
 
@@ -184,17 +161,14 @@ def process_one(key: str, article: dict, agent_id: int):
     text  = article.get("full_text", "") or ""
     url   = article.get("url", "")       or ""
 
-    # Sanitize whatever came from DB first
     title = sanitize(title)
     text  = sanitize(text)
 
-    # Scrape full text if DB has empty/short content
     if len(text.strip()) < 200 and url:
         print(f"  🌐 Agent {agent_id}: scraping article {article['id']}")
         scraped = scrape_article_text(url)
         if scraped:
             text = sanitize(scraped)
-            # Cache back to DB so we don't re-scrape next run
             try:
                 with _db_lock:
                     conn = get_conn()
@@ -209,7 +183,6 @@ def process_one(key: str, article: dict, agent_id: int):
             except Exception:
                 pass
 
-    # Build combined content — sanitize again after concatenation
     combined = sanitize((title + "\n\n" + text[:3000]).strip())
 
     if not combined or len(combined) < 20:
@@ -294,7 +267,6 @@ def sub_agent(agent_id: int, key: str, queue: ArticleQueue,
         result = process_one(key, article, agent_id)
 
         if result == "KEY_EXHAUSTED":
-            # Return article to front of queue for another agent to pick up
             with queue._lock:
                 queue._items.insert(0, article)
             print(f"  🔄 Agent {agent_id}: returned article {article['id']} to queue, stopping")
@@ -309,7 +281,7 @@ def sub_agent(agent_id: int, key: str, queue: ArticleQueue,
             with lock:
                 counts["failed"] += 1
 
-        time.sleep(1.5)  # ~40 RPM — safely under Groq free tier limit
+        time.sleep(1.5)
 
 
 # ── Fetch backlog from DB ─────────────────────────────────────────────────────
@@ -321,7 +293,8 @@ def get_backlog() -> list:
         SELECT id, title, full_text, url FROM articles
         WHERE (summary_60w IS NULL OR summary_60w = '')
         AND (is_duplicate IS NULL OR is_duplicate = false)
-        AND created_at > NOW() - INTERVAL '6 days' ORDER BY created_at DESC LIMIT 100
+        AND created_at > NOW() - INTERVAL '6 days'
+        ORDER BY created_at DESC LIMIT 100
     """)
     rows = [dict(r) for r in cur.fetchall()]
     cur.close()
@@ -331,10 +304,17 @@ def get_backlog() -> list:
 
 # ── Main run ──────────────────────────────────────────────────────────────────
 
-def run() -> int:
-    if not GROQ_KEYS:
-        print("  ⚠ AgentBacklog — No Groq keys found")
-        print("     Set GROQ_API_KEY_1 ... GROQ_API_KEY_50 or GROQ_API_KEY in Railway")
+def run(pool: GroqKeyPool = MAIN_POOL) -> int:
+    """
+    Process the article backlog using the given key pool.
+
+    - Called with no args by run_once()       → uses MAIN_POOL (8 keys)
+    - Called with SEARCH_POOL by run_for_symbol() → uses search keys (3 keys)
+    """
+    # Extract keys from the pool
+    keys = pool._keys
+    if not keys or keys == ["placeholder"]:
+        print("  ⚠ AgentBacklog — No Groq keys found in pool")
         return 0
 
     articles = get_backlog()
@@ -342,8 +322,9 @@ def run() -> int:
         print("  ✅ AgentBacklog — No backlog!")
         return 0
 
-    n_agents = len(GROQ_KEYS)
-    print(f"📦 AgentBacklog — {len(articles)} articles | {n_agents} sub-agents | one key each")
+    n_agents = len(keys)
+    pool_name = "SEARCH" if pool is not MAIN_POOL else "MAIN"
+    print(f"📦 AgentBacklog — {len(articles)} articles | {n_agents} sub-agents | pool={pool_name}")
 
     queue  = ArticleQueue(articles)
     counts = {"done": 0, "bullish": 0, "bearish": 0, "neutral": 0, "failed": 0}
@@ -351,7 +332,7 @@ def run() -> int:
     total  = len(articles)
 
     threads = []
-    for i, key in enumerate(GROQ_KEYS):
+    for i, key in enumerate(keys):
         t = threading.Thread(
             target=sub_agent,
             args=(i + 1, key, queue, counts, lock),
@@ -359,7 +340,7 @@ def run() -> int:
         )
         threads.append(t)
         t.start()
-        time.sleep(0.3)  # stagger starts
+        time.sleep(0.3)
 
     start = time.time()
     while any(t.is_alive() for t in threads):
