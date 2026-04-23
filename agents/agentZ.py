@@ -12,18 +12,16 @@ import re
 from math import log, sqrt
 from collections import Counter
 
-# ── Source authority ranking (lower index = higher authority) ─────────────────
 SOURCE_PRIORITY = [
-    "sec edgar", "nse", "bse", "sebi", "rbi", "pib",  # official
+    "sec edgar", "nse", "bse", "sebi", "rbi", "pib",
     "reuters", "bloomberg", "associated press", "ap news",
     "wall street journal", "financial times",
     "economic times", "moneycontrol", "livemint", "business standard",
     "cnbc", "ndtv", "yahoo finance",
 ]
 
-SIMILARITY_THRESHOLD = 0.75   # ≥ 65% similar → treat as duplicate
+SIMILARITY_THRESHOLD = 0.75
 
-# ── Minimal TF-IDF implementation (no sklearn dependency) ────────────────────
 STOPWORDS = {
     'the','a','an','is','are','was','were','be','been','being',
     'have','has','had','do','does','did','will','would','could','should',
@@ -59,14 +57,12 @@ def build_idf(token_lists: list) -> dict:
     return {w: log((N + 1) / (cnt + 1)) + 1 for w, cnt in df.items()}
 
 def source_rank(source: str) -> int:
-    """Lower rank = higher authority. Unknown sources get rank 999."""
     s = (source or '').lower()
     for i, name in enumerate(SOURCE_PRIORITY):
         if name in s:
             return i
     return 999
 
-# ── Main ──────────────────────────────────────────────────────────────────────
 def run(hours: int = 48) -> int:
     print("🔁 AgentZ — Deduplicator")
     articles = get_pending_dedup(hours)
@@ -75,7 +71,23 @@ def run(hours: int = 48) -> int:
         print(f"  ℹ  Only {len(articles)} article(s) — nothing to compare.\n")
         return 0
 
-    # Build corpus for TF-IDF
+    duplicated_ids = set()
+    dup_count = 0
+
+    # ── Pass 1: exact title dedup ─────────────────────────────────────────────
+    seen_titles = {}
+    for art in articles:
+        title = (art.get('title') or '').strip().lower()
+        if not title:
+            continue
+        if title in seen_titles:
+            duplicated_ids.add(art['id'])
+            mark_duplicate(art['id'])
+            dup_count += 1
+        else:
+            seen_titles[title] = art['id']
+
+    # ── Pass 2: TF-IDF cosine similarity ─────────────────────────────────────
     corpus = []
     for art in articles:
         combined = (art.get('title', '') or '') + ' ' + (art.get('summary_60w', '') or art.get('full_text', '') or '')
@@ -83,9 +95,6 @@ def run(hours: int = 48) -> int:
 
     idf = build_idf(corpus)
     vectors = [tfidf_vector(tl, idf) for tl in corpus]
-
-    duplicated_ids = set()
-    dup_count = 0
 
     for i in range(len(articles)):
         if articles[i]['id'] in duplicated_ids:
@@ -96,15 +105,9 @@ def run(hours: int = 48) -> int:
 
             sim = cosine(vectors[i], vectors[j])
             if sim >= SIMILARITY_THRESHOLD:
-                # Keep the one with higher authority; mark the other as duplicate
                 rank_i = source_rank(articles[i].get('source', ''))
                 rank_j = source_rank(articles[j].get('source', ''))
-
-                if rank_i <= rank_j:
-                    victim_id = articles[j]['id']
-                else:
-                    victim_id = articles[i]['id']
-
+                victim_id = articles[j]['id'] if rank_i <= rank_j else articles[i]['id']
                 duplicated_ids.add(victim_id)
                 mark_duplicate(victim_id)
                 dup_count += 1
