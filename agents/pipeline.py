@@ -77,8 +77,6 @@ def run_for_symbol(symbol: str):
         record_search(symbol)
         print(f"  💾 Saved {symbol} to searched_symbols")
 
-        # ✅ 2. Add to all users' watchlists
-        add_to_watchlist(symbol)
 
         ts = datetime.now().strftime('%d %b %Y, %H:%M:%S')
         print(f"\n{'─'*55}")
