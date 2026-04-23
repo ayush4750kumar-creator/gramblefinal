@@ -157,7 +157,7 @@ def get_pending_dedup(hours=48):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
-        SELECT id, title, url FROM articles
+        SELECT id, title, url, source, summary_60w, full_text FROM articles
         WHERE (is_duplicate IS NULL OR is_duplicate = false)
         AND published_at >= NOW() - INTERVAL '%s hours'
         ORDER BY published_at DESC

@@ -21,7 +21,7 @@ SOURCE_PRIORITY = [
     "cnbc", "ndtv", "yahoo finance",
 ]
 
-SIMILARITY_THRESHOLD = 0.85   # ≥ 65% similar → treat as duplicate
+SIMILARITY_THRESHOLD = 0.75   # ≥ 65% similar → treat as duplicate
 
 # ── Minimal TF-IDF implementation (no sklearn dependency) ────────────────────
 STOPWORDS = {
