@@ -266,6 +266,8 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
         const sym = view.symbol;
 
         // 1. Trigger pipeline immediately via /api/search/news (fire and forget)
+        fetch(`${SEARCH_API}/news?symbol=${sym}`).catch(() => {});
+        fetch(`${SEARCH_API}/news?symbol=${sym}`).catch(() => {});
 
         // 2. Fetch whatever is already in DB
         const data = await fetchArticles(sym).catch(() => []);
