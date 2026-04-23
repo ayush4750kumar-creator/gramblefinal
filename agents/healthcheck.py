@@ -8,33 +8,32 @@ import pipeline  # so we can call pipeline.run_for_symbol() directly
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path.startswith('/trigger-search'):
-            from urllib.parse import urlparse, parse_qs
-            parsed = urlparse(self.path)
-            params = parse_qs(parsed.query)
-            symbol = params.get('symbol', [''])[0].upper()
+    if self.path.startswith('/trigger-search'):
+        import pipeline  # lazy import here, not at top of file
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+        symbol = params.get('symbol', [''])[0].upper()
 
-            if symbol:
-                print(f'🔍 Search trigger received for {symbol}')
-                t = threading.Thread(
-                    target=pipeline.run_for_symbol,
-                    args=(symbol,),
-                    daemon=True,
-                )
-                t.start()
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(json.dumps({'ok': True, 'symbol': symbol}).encode())
-            else:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b'missing symbol')
-
-        else:
+        if symbol:
+            print(f'🔍 Search trigger received for {symbol}')
+            t = threading.Thread(
+                target=pipeline.run_for_symbol,
+                args=(symbol,),
+                daemon=True,
+            )
+            t.start()
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(b'OK')
-
+            self.wfile.write(json.dumps({'ok': True, 'symbol': symbol}).encode())
+        else:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b'missing symbol')
+    else:
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'OK')
     def do_POST(self):
         if self.path.startswith('/trigger'):
             length = int(self.headers.get('Content-Length', 0))
