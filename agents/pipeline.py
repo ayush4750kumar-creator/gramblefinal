@@ -11,7 +11,7 @@ from db_utils import migrate, get_conn
 
 import agentX, agentY, agentZ, agentBacklog, agentWatchlist
 from groq_pool import SEARCH_POOL
-import healthcheck  # import only — start() called after run_for_symbol is defined
+import healthcheck
 
 BANNER = """
 ╔══════════════════════════════════════════════════════╗
@@ -33,6 +33,31 @@ def clear_all_articles():
     print("🗑️  Cleared all articles from DB — fresh start!")
 
 
+def add_to_watchlist(symbol: str):
+    """Add searched symbol to ALL users' watchlists automatically."""
+    try:
+        conn = get_conn()
+        cur  = conn.cursor()
+        # Get all user IDs
+        cur.execute("SELECT DISTINCT user_id FROM watchlists")
+        user_ids = [r[0] for r in cur.fetchall()]
+        if not user_ids:
+            # No users yet — still save it with a default user_id of 0
+            user_ids = [0]
+        for uid in user_ids:
+            cur.execute("""
+                INSERT INTO watchlists (user_id, symbol)
+                VALUES (%s, %s)
+                ON CONFLICT DO NOTHING
+            """, (uid, symbol))
+        conn.commit()
+        cur.close()
+        conn.close()
+        print(f"  ✅ Added {symbol} to watchlist for {len(user_ids)} user(s)")
+    except Exception as e:
+        print(f"  ⚠  Could not add {symbol} to watchlist: {e}")
+
+
 def run_for_symbol(symbol: str):
     symbol = symbol.upper()
 
@@ -43,6 +68,14 @@ def run_for_symbol(symbol: str):
         _running_symbols.add(symbol)
 
     try:
+        # ✅ 1. Save to searched_symbols DB immediately
+        from db_utils import record_search
+        record_search(symbol)
+        print(f"  💾 Saved {symbol} to searched_symbols")
+
+        # ✅ 2. Add to watchlist for all users
+        add_to_watchlist(symbol)
+
         ts = datetime.now().strftime('%d %b %Y, %H:%M:%S')
         print(f"\n{'─'*55}")
         print(f"🔍 Symbol pipeline for {symbol}: {ts}")
@@ -58,16 +91,18 @@ def run_for_symbol(symbol: str):
             tagged = agentY.run(limit=50)
             print(f"  ⏱  Tag layer:          {time.time()-t:.1f}s  ({tagged} tagged)")
 
-            from agentWatchlist import mark_ready
-            mark_ready(symbol)
-
             t = time.time()
             duped = agentZ.run(hours=48)
             print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
 
+            # ✅ 3. Backlog FIRST with limit=5, THEN mark_ready
             t = time.time()
-            backlog_done = agentBacklog.run(pool=SEARCH_POOL, symbol=symbol)
+            backlog_done = agentBacklog.run(pool=SEARCH_POOL, symbol=symbol, limit=5)
             print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
+
+            # ✅ 4. Only NOW mark articles ready — site shows them with summaries
+            from agentWatchlist import mark_ready
+            mark_ready(symbol)
 
             print(f"\n✅ Symbol pipeline for {symbol} complete in {time.time()-t_total:.1f}s\n")
 
@@ -113,6 +148,21 @@ def run_once():
         print(f"  ⏱  Watchlist layer:    {time.time()-t:.1f}s  ({watchlist_saved} new articles)")
     except Exception as e:
         print(f"  ⚠  Watchlist layer error: {e}")
+
+    # ✅ Re-fetch recently searched symbols so they stay fresh every 5 min
+    try:
+        from db_utils import get_recently_searched
+        searched = get_recently_searched(hours=24)
+        if searched:
+            print(f"  🔁 Refreshing {len(searched)} searched symbols: {searched}")
+            for sym in searched:
+                try:
+                    extra = agentWatchlist.run(symbol=sym)
+                    print(f"     {sym}: {extra} new articles")
+                except Exception as e:
+                    print(f"     ⚠ {sym} error: {e}")
+    except Exception as e:
+        print(f"  ⚠  Searched symbols refresh error: {e}")
 
     try:
         t = time.time()

@@ -1,11 +1,10 @@
 """
-agentBacklog.py — Parallel Backlog Processor (FIXED v4)
+agentBacklog.py — Parallel Backlog Processor (FIXED v5)
 
-Changes from v3:
-- get_backlog() accepts optional symbol parameter
-- run() accepts optional symbol parameter
-- Search pipeline passes symbol → only processes that symbol's articles
-- Main pipeline passes no symbol → processes 100 random articles as before
+Changes from v4:
+- get_backlog() accepts limit parameter
+- run() accepts limit parameter
+- Symbol search uses limit=5, main pipeline uses limit=100
 """
 import sys, os, time, json, threading, re, unicodedata
 sys.path.insert(0, os.path.dirname(__file__))
@@ -270,7 +269,7 @@ def sub_agent(agent_id: int, key: str, queue: ArticleQueue,
 
 # ── Fetch backlog from DB ─────────────────────────────────────────────────────
 
-def get_backlog(symbol: str = None) -> list:
+def get_backlog(symbol: str = None, limit: int = 100) -> list:
     conn = get_conn()
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     if symbol:
@@ -280,16 +279,16 @@ def get_backlog(symbol: str = None) -> list:
             AND (is_duplicate IS NULL OR is_duplicate = false)
             AND created_at > NOW() - INTERVAL '6 days'
             AND symbol = %s
-            ORDER BY created_at DESC LIMIT 50
-        """, (symbol,))
+            ORDER BY created_at DESC LIMIT %s
+        """, (symbol, limit))
     else:
         cur.execute("""
             SELECT id, title, full_text, url FROM articles
             WHERE (summary_60w IS NULL OR summary_60w = '')
             AND (is_duplicate IS NULL OR is_duplicate = false)
             AND created_at > NOW() - INTERVAL '6 days'
-            ORDER BY created_at DESC LIMIT 100
-        """)
+            ORDER BY created_at DESC LIMIT %s
+        """, (limit,))
     rows = [dict(r) for r in cur.fetchall()]
     cur.close()
     conn.close()
@@ -298,13 +297,13 @@ def get_backlog(symbol: str = None) -> list:
 
 # ── Main run ──────────────────────────────────────────────────────────────────
 
-def run(pool: GroqKeyPool = MAIN_POOL, symbol: str = None) -> int:
+def run(pool: GroqKeyPool = MAIN_POOL, symbol: str = None, limit: int = 100) -> int:
     keys = pool._keys
     if not keys or keys == ["placeholder"]:
         print("  ⚠ AgentBacklog — No Groq keys found in pool")
         return 0
 
-    articles = get_backlog(symbol=symbol)
+    articles = get_backlog(symbol=symbol, limit=limit)
     if not articles:
         print("  ✅ AgentBacklog — No backlog!")
         return 0
