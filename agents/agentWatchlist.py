@@ -169,7 +169,7 @@ def fetch_news_for_symbol(symbol: str) -> list:
 
 
 def mark_ready(symbol: str):
-    """Mark all unready WATCHLIST articles for this symbol as ready."""
+    """Mark only articles that have a summary as ready — never show unfinished articles."""
     try:
         conn = get_conn()
         cur  = conn.cursor()
@@ -178,7 +178,9 @@ def mark_ready(symbol: str):
                SET is_ready = true
                WHERE symbol = %s
                  AND is_ready = false
-                 AND agent_source = 'WATCHLIST'""",
+                 AND agent_source = 'WATCHLIST'
+                 AND summary_60w IS NOT NULL
+                 AND summary_60w != ''""",
             (symbol.upper(),)
         )
         updated = cur.rowcount
