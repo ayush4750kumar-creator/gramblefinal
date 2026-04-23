@@ -22,7 +22,7 @@ BANNER = """
 _running_symbols: set = set()
 _running_lock = threading.Lock()
 
-# ✅ Flag to pause main backlog when a symbol search is active
+# Flag to pause main backlog when a symbol search is active
 _search_running = threading.Event()
 
 
@@ -36,29 +36,6 @@ def clear_all_articles():
     print("🗑️  Cleared all articles from DB — fresh start!")
 
 
-def add_to_watchlist(symbol: str):
-    """Add searched symbol to ALL users' watchlists automatically."""
-    try:
-        conn = get_conn()
-        cur  = conn.cursor()
-        cur.execute("SELECT DISTINCT user_id FROM watchlists")
-        user_ids = [r[0] for r in cur.fetchall()]
-        if not user_ids:
-            user_ids = [0]
-        for uid in user_ids:
-            cur.execute("""
-                INSERT INTO watchlists (user_id, symbol)
-                VALUES (%s, %s)
-                ON CONFLICT DO NOTHING
-            """, (uid, symbol))
-        conn.commit()
-        cur.close()
-        conn.close()
-        print(f"  ✅ Added {symbol} to watchlist for {len(user_ids)} user(s)")
-    except Exception as e:
-        print(f"  ⚠  Could not add {symbol} to watchlist: {e}")
-
-
 def run_for_symbol(symbol: str):
     symbol = symbol.upper()
 
@@ -68,16 +45,10 @@ def run_for_symbol(symbol: str):
             return
         _running_symbols.add(symbol)
 
-    # ✅ Signal main pipeline to pause its backlog
+    # Signal main pipeline to pause its backlog
     _search_running.set()
 
     try:
-        # ✅ 1. Save to searched_symbols DB immediately
-        from db_utils import record_search
-        record_search(symbol)
-        print(f"  💾 Saved {symbol} to searched_symbols")
-
-
         ts = datetime.now().strftime('%d %b %Y, %H:%M:%S')
         print(f"\n{'─'*55}")
         print(f"🔍 Symbol pipeline for {symbol}: {ts}")
@@ -97,12 +68,12 @@ def run_for_symbol(symbol: str):
             duped = agentZ.run(hours=48)
             print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
 
-            # ✅ 3. Backlog FIRST, limit=5, SEARCH_POOL (separate keys)
+            # Backlog FIRST with limit=5 using SEARCH_POOL
             t = time.time()
             backlog_done = agentBacklog.run(pool=SEARCH_POOL, symbol=symbol, limit=5)
             print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
 
-            # ✅ 4. Only NOW mark ready — site shows articles with summaries
+            # THEN mark ready — site shows articles only with summaries
             from agentWatchlist import mark_ready
             mark_ready(symbol)
 
@@ -114,7 +85,6 @@ def run_for_symbol(symbol: str):
     finally:
         with _running_lock:
             _running_symbols.discard(symbol)
-            # ✅ Clear pause flag only when ALL symbol searches are done
             if not _running_symbols:
                 _search_running.clear()
 
@@ -154,22 +124,7 @@ def run_once():
     except Exception as e:
         print(f"  ⚠  Watchlist layer error: {e}")
 
-    # ✅ Re-fetch recently searched symbols so they stay fresh every 5 min
-    try:
-        from db_utils import get_recently_searched
-        searched = get_recently_searched(hours=24)
-        if searched:
-            print(f"  🔁 Refreshing {len(searched)} searched symbols: {searched}")
-            for sym in searched:
-                try:
-                    extra = agentWatchlist.run(symbol=sym)
-                    print(f"     {sym}: {extra} new articles")
-                except Exception as e:
-                    print(f"     ⚠ {sym} error: {e}")
-    except Exception as e:
-        print(f"  ⚠  Searched symbols refresh error: {e}")
-
-    # ✅ Wait for any active symbol search before running main backlog
+    # Wait for any active symbol search before running main backlog
     if _search_running.is_set():
         print(f"  ⏸  Search pipeline active — waiting before main backlog...")
         _search_running.wait()
