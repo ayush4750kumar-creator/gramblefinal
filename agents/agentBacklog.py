@@ -1,11 +1,11 @@
 """
-agentBacklog.py — Parallel Backlog Processor (FIXED v3)
+agentBacklog.py — Parallel Backlog Processor (FIXED v4)
 
-Changes from v2:
-- Now accepts an optional `pool` parameter (GroqKeyPool) in run()
-- MAIN_POOL is the default → main pipeline behaviour unchanged
-- SEARCH_POOL is passed in by run_for_symbol() → search uses its own 3 keys
-- Internal key loading kept as fallback if groq_pool is unavailable
+Changes from v3:
+- get_backlog() accepts optional symbol parameter
+- run() accepts optional symbol parameter
+- Search pipeline passes symbol → only processes that symbol's articles
+- Main pipeline passes no symbol → processes 100 random articles as before
 """
 import sys, os, time, json, threading, re, unicodedata
 sys.path.insert(0, os.path.dirname(__file__))
@@ -19,10 +19,7 @@ GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.1-8b-instant"
 
 
-# ── Content sanitizer ─────────────────────────────────────────────────────────
-
 def sanitize(text: str) -> str:
-    """Remove null bytes, non-printable chars, and normalize unicode."""
     if not text:
         return ""
     text = text.replace("\x00", "")
@@ -35,10 +32,7 @@ def sanitize(text: str) -> str:
     return text
 
 
-# ── Full-text scraper ─────────────────────────────────────────────────────────
-
 def scrape_article_text(url: str) -> str:
-    """Fetch the actual article page and extract readable text."""
     if not url:
         return ""
     try:
@@ -62,8 +56,6 @@ def scrape_article_text(url: str) -> str:
         return ""
 
 
-# ── Shared thread-safe article queue ─────────────────────────────────────────
-
 class ArticleQueue:
     def __init__(self, articles: list):
         self._items = list(articles)
@@ -77,8 +69,6 @@ class ArticleQueue:
         with self._lock:
             return len(self._items)
 
-
-# ── Thread-safe DB writes ─────────────────────────────────────────────────────
 
 _db_lock = threading.Lock()
 
@@ -103,8 +93,6 @@ def save_result(result: dict):
             cur.close()
             conn.close()
 
-
-# ── Groq call — exponential backoff + key-death detection ────────────────────
 
 def groq_call(key: str, prompt: str, agent_id: int) -> str:
     consecutive_429 = 0
@@ -153,8 +141,6 @@ def groq_call(key: str, prompt: str, agent_id: int) -> str:
             time.sleep(3)
     return ""
 
-
-# ── Process one article ───────────────────────────────────────────────────────
 
 def process_one(key: str, article: dict, agent_id: int):
     title = article.get("title", "")     or ""
@@ -255,8 +241,6 @@ CRITICAL RULES:
     return None
 
 
-# ── Sub-agent: owns one key, drains from shared queue ────────────────────────
-
 def sub_agent(agent_id: int, key: str, queue: ArticleQueue,
               counts: dict, lock: threading.Lock):
     while True:
@@ -286,16 +270,26 @@ def sub_agent(agent_id: int, key: str, queue: ArticleQueue,
 
 # ── Fetch backlog from DB ─────────────────────────────────────────────────────
 
-def get_backlog() -> list:
+def get_backlog(symbol: str = None) -> list:
     conn = get_conn()
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""
-        SELECT id, title, full_text, url FROM articles
-        WHERE (summary_60w IS NULL OR summary_60w = '')
-        AND (is_duplicate IS NULL OR is_duplicate = false)
-        AND created_at > NOW() - INTERVAL '6 days'
-        ORDER BY created_at DESC LIMIT 100
-    """)
+    if symbol:
+        cur.execute("""
+            SELECT id, title, full_text, url FROM articles
+            WHERE (summary_60w IS NULL OR summary_60w = '')
+            AND (is_duplicate IS NULL OR is_duplicate = false)
+            AND created_at > NOW() - INTERVAL '6 days'
+            AND symbol = %s
+            ORDER BY created_at DESC LIMIT 50
+        """, (symbol,))
+    else:
+        cur.execute("""
+            SELECT id, title, full_text, url FROM articles
+            WHERE (summary_60w IS NULL OR summary_60w = '')
+            AND (is_duplicate IS NULL OR is_duplicate = false)
+            AND created_at > NOW() - INTERVAL '6 days'
+            ORDER BY created_at DESC LIMIT 100
+        """)
     rows = [dict(r) for r in cur.fetchall()]
     cur.close()
     conn.close()
@@ -304,20 +298,13 @@ def get_backlog() -> list:
 
 # ── Main run ──────────────────────────────────────────────────────────────────
 
-def run(pool: GroqKeyPool = MAIN_POOL) -> int:
-    """
-    Process the article backlog using the given key pool.
-
-    - Called with no args by run_once()       → uses MAIN_POOL (8 keys)
-    - Called with SEARCH_POOL by run_for_symbol() → uses search keys (3 keys)
-    """
-    # Extract keys from the pool
+def run(pool: GroqKeyPool = MAIN_POOL, symbol: str = None) -> int:
     keys = pool._keys
     if not keys or keys == ["placeholder"]:
         print("  ⚠ AgentBacklog — No Groq keys found in pool")
         return 0
 
-    articles = get_backlog()
+    articles = get_backlog(symbol=symbol)
     if not articles:
         print("  ✅ AgentBacklog — No backlog!")
         return 0

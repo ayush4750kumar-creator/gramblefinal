@@ -66,7 +66,7 @@ def run_for_symbol(symbol: str):
             print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
 
             t = time.time()
-            backlog_done = agentBacklog.run(pool=SEARCH_POOL)
+            backlog_done = agentBacklog.run(pool=SEARCH_POOL, symbol=symbol)
             print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
 
             print(f"\n✅ Symbol pipeline for {symbol} complete in {time.time()-t_total:.1f}s\n")
