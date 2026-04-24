@@ -12,6 +12,8 @@ const PLACEHOLDER = 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a
 const API      = 'https://gramblefinal-production.up.railway.app/api/news';
 const SEARCH_API = 'https://gramblefinal-production.up.railway.app/api/search';
 
+const AUTO_REFRESH_INTERVAL = 60 * 1000; // 60 seconds
+
 const EXCHANGE_TABS = [
   { key:'NSE', label:'NSE', color:'#7c3aed' },
   { key:'BSE', label:'BSE', color:'#ea580c' },
@@ -57,6 +59,22 @@ function useIsMobile() {
   return isMobile;
 }
 
+// ── URL hash helpers — persist view across refresh ────────────────────────────
+function viewToHash(view) {
+  if (!view || view === 'feed') return '';
+  if (view?.type === 'stock') return `stock/${view.symbol}`;
+  if (typeof view === 'string') return `view/${encodeURIComponent(view)}`;
+  return '';
+}
+
+function hashToView(hash) {
+  const h = hash.replace(/^#/, '');
+  if (!h) return 'feed';
+  if (h.startsWith('stock/')) return { type: 'stock', symbol: h.replace('stock/', '').toUpperCase() };
+  if (h.startsWith('view/')) return decodeURIComponent(h.replace('view/', ''));
+  return 'feed';
+}
+
 const btnStyle = {
   display:'flex', alignItems:'center', justifyContent:'center', gap:6,
   fontSize:13, fontWeight:600, padding:'10px 0', borderRadius:20,
@@ -68,6 +86,17 @@ function WatchlistToast({ symbol }) {
   return (
     <div style={{ position:'fixed', bottom:32, left:'50%', transform:'translateX(-50%)', background:'#1e2433', color:'#fff', padding:'12px 24px', borderRadius:12, fontSize:14, fontWeight:600, zIndex:9999, boxShadow:'0 4px 20px rgba(0,0,0,0.2)', display:'flex', alignItems:'center', gap:10 }}>
       <span style={{ color:'#34d399' }}>✓</span> {symbol} added to watchlist
+    </div>
+  );
+}
+
+// ── New articles pill ─────────────────────────────────────────────────────────
+function NewArticlesPill({ count, onClick }) {
+  return (
+    <div onClick={onClick} style={{ position:'sticky', top:8, zIndex:20, display:'flex', justifyContent:'center', marginBottom:8, cursor:'pointer' }}>
+      <div style={{ background:'#2563eb', color:'#fff', fontSize:13, fontWeight:700, padding:'8px 20px', borderRadius:20, boxShadow:'0 4px 16px rgba(37,99,235,0.35)', display:'flex', alignItems:'center', gap:8, userSelect:'none' }}>
+        ↑ {count} new article{count > 1 ? 's' : ''} — tap to load
+      </div>
     </div>
   );
 }
@@ -208,18 +237,39 @@ function MobileHeader({ feedTitle, articleCount, isStock, view, setView, watchli
 }
 
 export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
-  const [articles,    setArticles]    = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [fetching,    setFetching]    = useState(false); // pipeline running in background
-  const [exchangeTab, setExchangeTab] = useState('NSE');
-  const [toast,       setToast]       = useState(null);
-  const toastTimer  = useRef(null);
-  const pollTimer   = useRef(null);
-  const pollCount   = useRef(0);
-  const isMobile    = useIsMobile();
+  const [articles,     setArticles]     = useState([]);
+  const [newArticles,  setNewArticles]  = useState([]); // queued new articles to show
+  const [loading,      setLoading]      = useState(true);
+  const [fetching,     setFetching]     = useState(false);
+  const [exchangeTab,  setExchangeTab]  = useState('NSE');
+  const [toast,        setToast]        = useState(null);
+  const toastTimer     = useRef(null);
+  const pollTimer      = useRef(null);
+  const pollCount      = useRef(0);
+  const refreshTimer   = useRef(null);
+  const latestIdRef    = useRef(null); // track newest article id for auto-refresh
+  const isMobile       = useIsMobile();
 
   const isStock    = view?.type === 'stock';
   const isExchange = view === 'World Exchange';
+
+  // ── FIX 1: Persist view in URL hash so page refresh restores it ──────────
+  useEffect(() => {
+    // On mount — restore view from hash if present
+    const hash = window.location.hash;
+    if (hash && hash !== '#') {
+      const restored = hashToView(hash);
+      if (restored && restored !== 'feed') {
+        setView(restored);
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    // Sync hash whenever view changes
+    const hash = viewToHash(view);
+    window.location.hash = hash;
+  }, [view]);
 
   const handleWatchlistClick = (symbol) => {
     onWatchlist && onWatchlist(symbol);
@@ -234,6 +284,65 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     return fetch(url).then(r => r.json()).then(d => d.data || []);
   };
 
+  const buildFeedUrl = () => {
+    if (isExchange) return `${API}?limit=500`;
+    if (view !== 'feed') return `${API}?limit=1200&category=${encodeURIComponent(view)}`;
+    return `${API}?limit=1200`;
+  };
+
+  // ── FIX 2: Auto-refresh — silently check for new articles every 60s ───────
+  const startAutoRefresh = (currentView) => {
+    stopAutoRefresh();
+    refreshTimer.current = setInterval(async () => {
+      try {
+        let fresh = [];
+        if (currentView?.type === 'stock') {
+          fresh = await fetchArticles(currentView.symbol);
+        } else {
+          const url = buildFeedUrl();
+          const d = await fetch(url).then(r => r.json());
+          fresh = d.data || [];
+          // Apply same filters as initial load
+          const bad = ['wrestlemania','wwe','cricket','ipl','bollywood','celebrity'];
+          const allExchangeSources = Object.values(EXCHANGE_SOURCES).flat();
+          fresh = fresh.filter(a => {
+            const src = [(a.source||''), (a.tag_source_name||''), (a.agent_source||'')].join(' ').toLowerCase();
+            return !allExchangeSources.some(s => src.includes(s)) && !isHindi(a.title) && !bad.some(k => (a.title||'').toLowerCase().includes(k));
+          });
+        }
+
+        if (fresh.length === 0) return;
+
+        // Find articles newer than the newest we already have
+        const topId = latestIdRef.current;
+        if (!topId) { latestIdRef.current = fresh[0]?.id; return; }
+        const newer = fresh.filter(a => a.id > topId);
+        if (newer.length > 0) {
+          setNewArticles(newer);
+        }
+      } catch (_) {}
+    }, AUTO_REFRESH_INTERVAL);
+  };
+
+  const stopAutoRefresh = () => {
+    if (refreshTimer.current) { clearInterval(refreshTimer.current); refreshTimer.current = null; }
+  };
+
+  // Load new articles when user taps the pill
+  const loadNewArticles = () => {
+    if (newArticles.length === 0) return;
+    setArticles(prev => {
+      const existingIds = new Set(prev.map(a => a.id));
+      const toAdd = newArticles.filter(a => !existingIds.has(a.id));
+      const merged = [...toAdd, ...prev];
+      latestIdRef.current = merged[0]?.id || latestIdRef.current;
+      return merged;
+    });
+    setNewArticles([]);
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   // ── Poll every 5s until articles arrive (max 12 attempts = 60s) ──────────
   const startPolling = (sym) => {
     stopPolling();
@@ -244,8 +353,10 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
       const data = await fetchArticles(sym);
       if (data.length > 0) {
         setArticles(data);
+        latestIdRef.current = data[0]?.id;
         setFetching(false);
         stopPolling();
+        startAutoRefresh({ type: 'stock', symbol: sym });
       }
     }, 5000);
   };
@@ -256,51 +367,48 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
 
   useEffect(() => {
     stopPolling();
+    stopAutoRefresh();
     setLoading(true);
     setArticles([]);
+    setNewArticles([]);
     setFetching(false);
+    latestIdRef.current = null;
 
     const delay = isStock ? 300 : 0;
     const timer = setTimeout(async () => {
       if (isStock) {
         const sym = view.symbol;
-
-        // 1. Trigger pipeline immediately via /api/search/news (fire and forget)
         fetch(`${SEARCH_API}/news?symbol=${sym}`).catch(() => {});
         fetch(`${SEARCH_API}/news?symbol=${sym}`).catch(() => {});
-
-        // 2. Fetch whatever is already in DB
         const data = await fetchArticles(sym).catch(() => []);
         setArticles(data);
+        latestIdRef.current = data[0]?.id || null;
         setLoading(false);
-
-        // 3. If no articles yet, show fetching state and start polling
         if (data.length === 0) {
           setFetching(true);
           startPolling(sym);
+        } else {
+          startAutoRefresh(view);
         }
       } else {
-        // Non-stock views — fetch normally
-        let url = `${API}?limit=1200`;
-        if (isExchange) url = `${API}?limit=500`;
-        else if (view !== 'feed') url = `${API}?limit=1200&category=${encodeURIComponent(view)}`;
-
+        const url = buildFeedUrl();
         fetch(url).then(r => r.json()).then(d => {
           let data = d.data || [];
           const bad = ['wrestlemania','wwe','cricket','ipl','bollywood','celebrity'];
           const allExchangeSources = Object.values(EXCHANGE_SOURCES).flat();
           data = data.filter(a => {
             const src = [(a.source||''), (a.tag_source_name||''), (a.agent_source||'')].join(' ').toLowerCase();
-            const isExchangeNews = allExchangeSources.some(s => src.includes(s));
-            return !isExchangeNews && !isHindi(a.title) && !bad.some(k => (a.title||'').toLowerCase().includes(k));
+            return !allExchangeSources.some(s => src.includes(s)) && !isHindi(a.title) && !bad.some(k => (a.title||'').toLowerCase().includes(k));
           });
           setArticles(data);
+          latestIdRef.current = data[0]?.id || null;
           setLoading(false);
+          startAutoRefresh(view);
         }).catch(() => setLoading(false));
       }
     }, delay);
 
-    return () => { clearTimeout(timer); stopPolling(); };
+    return () => { clearTimeout(timer); stopPolling(); stopAutoRefresh(); };
   }, [view]);
 
   const filteredExchange = isExchange ? articles.filter(a => {
@@ -308,12 +416,13 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     return sources.some(s => (a.source||'').toLowerCase().includes(s) || (a.tag_source_name||'').toLowerCase().includes(s) || (a.agent_source||'').toLowerCase().includes(s));
   }) : [];
 
-  const feedTitle      = isStock ? view.symbol : isExchange ? 'World Exchange' : view === 'feed' ? 'Global Feed' : view;
+  const feedTitle       = isStock ? view.symbol : isExchange ? 'World Exchange' : view === 'feed' ? 'Global Feed' : view;
   const displayArticles = isExchange ? filteredExchange : articles;
-  const inWatchlist    = isStock && watchlist?.find(w => w.symbol === view.symbol);
+  const inWatchlist     = isStock && watchlist?.find(w => w.symbol === view.symbol);
+  const showFetching    = isStock && (loading || (fetching && displayArticles.length === 0));
 
-  // Show fetching screen if pipeline is running and no articles yet
-  const showFetching = isStock && (loading || (fetching && displayArticles.length === 0));
+  // New articles pill — only for articles not in exchange tab
+  const newPillCount = isExchange ? 0 : newArticles.length;
 
   if (isMobile) {
     return (
@@ -328,6 +437,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
           </div>
         )}
         <div style={{ flex:1, overflowY:'auto', padding:'12px' }}>
+          {newPillCount > 0 && <NewArticlesPill count={newPillCount} onClick={loadNewArticles} />}
           {showFetching && <FetchingScreen symbol={view.symbol} />}
           {loading && !isStock && (
             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:80, gap:12 }}>
@@ -371,6 +481,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
         </div>
       )}
       <div style={{ overflowY:'auto', padding:'12px', flex:1 }}>
+        {newPillCount > 0 && <NewArticlesPill count={newPillCount} onClick={loadNewArticles} />}
         {showFetching && <FetchingScreen symbol={view.symbol} />}
         {loading && !isStock && (
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}>
