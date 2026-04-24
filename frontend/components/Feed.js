@@ -417,7 +417,9 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   }) : [];
 
   const feedTitle       = isStock ? view.symbol : isExchange ? 'World Exchange' : view === 'feed' ? 'Global Feed' : view;
-  const displayArticles = isExchange ? filteredExchange : articles;
+  // Safety filter: on stock pages, only show articles actually tagged with that symbol
+  const stockFiltered   = isStock ? articles.filter(a => a.symbol === view.symbol) : articles;
+  const displayArticles = isExchange ? filteredExchange : stockFiltered;
   const inWatchlist     = isStock && watchlist?.find(w => w.symbol === view.symbol);
   const showFetching    = isStock && (loading || (fetching && displayArticles.length === 0));
 
