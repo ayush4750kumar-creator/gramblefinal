@@ -247,7 +247,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   const pollTimer      = useRef(null);
   const pollCount      = useRef(0);
   const refreshTimer   = useRef(null);
-  const latestIdRef    = useRef(null); // track newest article id for auto-refresh
+  const latestDateRef  = useRef(null); // track newest published_at for auto-refresh
   const isMobile       = useIsMobile();
 
   const isStock    = view?.type === 'stock';
@@ -314,9 +314,9 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
         if (fresh.length === 0) return;
 
         // Find articles newer than the newest we already have
-        const topId = latestIdRef.current;
-        if (!topId) { latestIdRef.current = fresh[0]?.id; return; }
-        const newer = fresh.filter(a => a.id > topId);
+        const topDate = latestDateRef.current;
+        if (!topDate) { latestDateRef.current = fresh[0]?.published_at; return; }
+        const newer = fresh.filter(a => new Date(a.published_at) > new Date(topDate));
         if (newer.length > 0) {
           setNewArticles(newer);
         }
@@ -334,8 +334,8 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     setArticles(prev => {
       const existingIds = new Set(prev.map(a => a.id));
       const toAdd = newArticles.filter(a => !existingIds.has(a.id));
-      const merged = [...toAdd, ...prev];
-      latestIdRef.current = merged[0]?.id || latestIdRef.current;
+      const merged = [...toAdd, ...prev].sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+      latestDateRef.current = merged[0]?.published_at || latestDateRef.current;
       return merged;
     });
     setNewArticles([]);
@@ -353,7 +353,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
       const data = await fetchArticles(sym);
       if (data.length > 0) {
         setArticles(data);
-        latestIdRef.current = data[0]?.id;
+        latestDateRef.current = data[0]?.published_at;
         setFetching(false);
         stopPolling();
         startAutoRefresh({ type: 'stock', symbol: sym });
@@ -372,7 +372,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     setArticles([]);
     setNewArticles([]);
     setFetching(false);
-    latestIdRef.current = null;
+    latestDateRef.current = null;
 
     const delay = isStock ? 300 : 0;
     const timer = setTimeout(async () => {
@@ -382,7 +382,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
         fetch(`${SEARCH_API}/news?symbol=${sym}`).catch(() => {});
         const data = await fetchArticles(sym).catch(() => []);
         setArticles(data);
-        latestIdRef.current = data[0]?.id || null;
+        latestDateRef.current = data[0]?.published_at || null;
         setLoading(false);
         if (data.length === 0) {
           setFetching(true);
@@ -401,7 +401,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
             return !allExchangeSources.some(s => src.includes(s)) && !isHindi(a.title) && !bad.some(k => (a.title||'').toLowerCase().includes(k));
           });
           setArticles(data);
-          latestIdRef.current = data[0]?.id || null;
+          latestDateRef.current = data[0]?.published_at || null;
           setLoading(false);
           startAutoRefresh(view);
         }).catch(() => setLoading(false));
