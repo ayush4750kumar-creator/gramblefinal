@@ -25,16 +25,20 @@ router.get('/', async (req, res) => {
     if (feed)      { where += ` AND a.tag_feed = $${p++}`;         params.push(feed); }
 
     // DISTINCT ON normalised title — deduplicates same story from multiple sources
+    // Wrapped in subquery so we can re-order by date after dedup
     const result = await pool.query(`
-      SELECT DISTINCT ON (lower(regexp_replace(a.title, '[^a-zA-Z0-9 ]', '', 'g')))
-             id, symbol, title, url, source, tag_source_name,
-             published_at, summary_60w, full_text, image_url,
-             tag_feed, tag_category, tag_after_hours,
-             sentiment_label, sentiment_reason, agent_source
-      FROM articles a
-      ${where}
-      ORDER BY lower(regexp_replace(a.title, '[^a-zA-Z0-9 ]', '', 'g')),
-               a.published_at DESC
+      SELECT * FROM (
+        SELECT DISTINCT ON (lower(regexp_replace(a.title, '[^a-zA-Z0-9 ]', '', 'g')))
+               id, symbol, title, url, source, tag_source_name,
+               published_at, summary_60w, full_text, image_url,
+               tag_feed, tag_category, tag_after_hours,
+               sentiment_label, sentiment_reason, agent_source
+        FROM articles a
+        ${where}
+        ORDER BY lower(regexp_replace(a.title, '[^a-zA-Z0-9 ]', '', 'g')),
+                 a.published_at DESC
+      ) deduped
+      ORDER BY published_at DESC
     `, params);
 
     // Slice manually for pagination (DISTINCT ON can't use LIMIT/OFFSET directly)
