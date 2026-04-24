@@ -24,25 +24,26 @@ router.get('/', async (req, res) => {
     if (category)  { where += ` AND a.tag_category = $${p++}`;     params.push(category); }
     if (feed)      { where += ` AND a.tag_feed = $${p++}`;         params.push(feed); }
 
+    // DISTINCT ON normalised title — deduplicates same story from multiple sources
     const result = await pool.query(`
-      SELECT id, symbol, title, url, source, tag_source_name,
+      SELECT DISTINCT ON (lower(regexp_replace(a.title, '[^a-zA-Z0-9 ]', '', 'g')))
+             id, symbol, title, url, source, tag_source_name,
              published_at, summary_60w, full_text, image_url,
              tag_feed, tag_category, tag_after_hours,
              sentiment_label, sentiment_reason, agent_source
       FROM articles a
       ${where}
-      ORDER BY a.published_at DESC
-      LIMIT $${p++} OFFSET $${p++}
-    `, [...params, limit, offset]);
+      ORDER BY lower(regexp_replace(a.title, '[^a-zA-Z0-9 ]', '', 'g')),
+               a.published_at DESC
+    `, params);
 
-    const countResult = await pool.query(
-      `SELECT COUNT(*) as count FROM articles a ${where}`, params
-    );
-    const total = parseInt(countResult.rows[0]?.count || 0);
+    // Slice manually for pagination (DISTINCT ON can't use LIMIT/OFFSET directly)
+    const total = result.rows.length;
+    const paginated = result.rows.slice(offset, offset + limit);
 
     res.json({
       success: true,
-      data: result.rows,
+      data: paginated,
       pagination: { page, limit, total, hasMore: offset + limit < total }
     });
   } catch (err) {
