@@ -16,7 +16,7 @@ import healthcheck
 BANNER = """
 ╔══════════════════════════════════════════════════════╗
 ║         S T A R K  N E W S  P I P E L I N E         ║
-║  X(fetch) → Y(tag) → Z(dedup) → W(watchlist) → AI   ║
+║  X(fetch) → W(watchlist) → Y(tag) → Z(dedup) → AI   ║
 ╚══════════════════════════════════════════════════════╝"""
 
 _running_symbols: set = set()
@@ -96,6 +96,7 @@ def run_once():
     print(f"{'─'*55}")
     t_total = time.time()
 
+    # ── STEP 1: Fetch all articles ─────────────────────────────────────────
     try:
         t = time.time()
         fetched = agentX.run(parallel=True)
@@ -103,20 +104,7 @@ def run_once():
     except Exception as e:
         print(f"  ⚠  Fetch layer error: {e}")
 
-    try:
-        t = time.time()
-        tagged = agentY.run(limit=500)
-        print(f"  ⏱  Tag layer:          {time.time()-t:.1f}s  ({tagged} tagged)")
-    except Exception as e:
-        print(f"  ⚠  Tag layer error: {e}")
-
-    try:
-        t = time.time()
-        duped = agentZ.run(hours=48)
-        print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
-    except Exception as e:
-        print(f"  ⚠  Dedup layer error: {e}")
-
+    # ── STEP 2: Watchlist (must be BEFORE dedup so its articles get deduped) ──
     try:
         t = time.time()
         watchlist_saved = agentWatchlist.run()
@@ -124,12 +112,29 @@ def run_once():
     except Exception as e:
         print(f"  ⚠  Watchlist layer error: {e}")
 
+    # ── STEP 3: Tag everything that was just fetched ───────────────────────
+    try:
+        t = time.time()
+        tagged = agentY.run(limit=500)
+        print(f"  ⏱  Tag layer:          {time.time()-t:.1f}s  ({tagged} tagged)")
+    except Exception as e:
+        print(f"  ⚠  Tag layer error: {e}")
+
+    # ── STEP 4: Dedup NOW covers ALL articles (fetch + watchlist) ──────────
+    try:
+        t = time.time()
+        duped = agentZ.run(hours=48)
+        print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
+    except Exception as e:
+        print(f"  ⚠  Dedup layer error: {e}")
+
     # Wait for any active symbol search before running main backlog
     if _search_running.is_set():
         print(f"  ⏸  Search pipeline active — waiting before main backlog...")
         _search_running.wait()
         print(f"  ▶️  Search done — resuming main backlog")
 
+    # ── STEP 5: Backlog ────────────────────────────────────────────────────
     try:
         t = time.time()
         backlog_done = agentBacklog.run()
