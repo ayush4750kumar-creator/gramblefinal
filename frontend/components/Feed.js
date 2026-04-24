@@ -60,19 +60,16 @@ function useIsMobile() {
 }
 
 // ── URL hash helpers — persist view across refresh ────────────────────────────
-function viewToHash(view) {
-  if (!view || view === 'feed') return '';
-  if (view?.type === 'stock') return `stock/${view.symbol}`;
-  if (typeof view === 'string') return `view/${encodeURIComponent(view)}`;
-  return '';
+function viewToPath(view) {
+  if (!view || view === 'feed') return '/';
+  if (view?.type === 'stock') return `/${view.symbol}`;
+  return '/';
 }
 
-function hashToView(hash) {
-  const h = hash.replace(/^#/, '');
-  if (!h) return 'feed';
-  if (h.startsWith('stock/')) return { type: 'stock', symbol: h.replace('stock/', '').toUpperCase() };
-  if (h.startsWith('view/')) return decodeURIComponent(h.replace('view/', ''));
-  return 'feed';
+function pathToView(path) {
+  const p = path.replace(/^\//, '');
+  if (!p) return 'feed';
+  return { type: 'stock', symbol: p.toUpperCase() };
 }
 
 const btnStyle = {
@@ -256,9 +253,9 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   // ── FIX 1: Persist view in URL hash so page refresh restores it ──────────
   useEffect(() => {
     // On mount — restore view from hash if present
-    const hash = window.location.hash;
-    if (hash && hash !== '#') {
-      const restored = hashToView(hash);
+    const path = window.location.pathname;
+    if (path && path !== '/') {
+      const restored = pathToView(path);
       if (restored && restored !== 'feed') {
         setView(restored);
       }
@@ -267,8 +264,8 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
 
   useEffect(() => {
     // Sync hash whenever view changes
-    const hash = viewToHash(view);
-    window.location.hash = hash;
+    const path = viewToPath(view);
+    history.replaceState(null, '', path);
   }, [view]);
 
   const handleWatchlistClick = (symbol) => {
