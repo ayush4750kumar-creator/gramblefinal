@@ -5,11 +5,13 @@ import feedparser, requests, re, time
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 
-# ── 1-hour fetch window — only articles published in last 1 hour ─────────────
+# ── Default fetch window — only articles published in last 1 hour ─────────────
 FETCH_WINDOW_HOURS = 1
 
-def is_recent(pub) -> bool:
-    """Returns True only if article was published within FETCH_WINDOW_HOURS."""
+def is_recent(pub, hours: int = None) -> bool:
+    """Returns True only if article was published within `hours` hours.
+    Defaults to FETCH_WINDOW_HOURS (1hr) if not specified."""
+    window = hours if hours is not None else FETCH_WINDOW_HOURS
     try:
         if isinstance(pub, str):
             for fmt in (
@@ -28,7 +30,7 @@ def is_recent(pub) -> bool:
             if pub.tzinfo is None:
                 pub = pub.replace(tzinfo=timezone.utc)
             age = datetime.now(timezone.utc) - pub
-            return age <= timedelta(hours=FETCH_WINDOW_HOURS)
+            return age <= timedelta(hours=window)
     except Exception:
         pass
     # If we can't parse the date, let it through to avoid dropping valid articles

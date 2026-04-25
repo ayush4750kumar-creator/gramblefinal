@@ -40,7 +40,7 @@ def migrate():
         ALTER TABLE articles ALTER COLUMN tag_category DROP DEFAULT;
     """)
 
-    # ── Searched symbols table (NEW) ─────────────────────────────────────────
+    # ── Searched symbols table ────────────────────────────────────────────────
     # Tracks every stock symbol a user has searched for.
     # Used by the search pipeline loop to keep refreshing searched stocks every 5 min.
     cur.execute("""
@@ -48,6 +48,17 @@ def migrate():
             symbol           TEXT PRIMARY KEY,
             last_searched_at TIMESTAMPTZ DEFAULT NOW(),
             search_count     INT DEFAULT 1
+        );
+    """)
+
+    # ── Symbol meta table ─────────────────────────────────────────────────────
+    # Tracks whether a deep search (20-day fetch) has been done for a symbol.
+    # Once deep_search_done = TRUE, we never do a 20-day fetch again for that symbol.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS symbol_meta (
+            symbol           TEXT PRIMARY KEY,
+            deep_search_done BOOLEAN DEFAULT FALSE,
+            deep_search_at   TIMESTAMPTZ
         );
     """)
 
@@ -93,6 +104,47 @@ def get_recently_searched(hours: int = 24) -> list:
     cur.close()
     conn.close()
     return symbols
+
+
+# ── Deep search tracking ──────────────────────────────────────────────────────
+
+def is_deep_search_done(symbol: str) -> bool:
+    """Returns True if a 20-day deep fetch has already been done for this symbol."""
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT deep_search_done FROM symbol_meta WHERE symbol = %s",
+            (symbol.upper(),)
+        )
+        row = cur.fetchone()
+        return bool(row and row[0])
+    except Exception as e:
+        print(f"  ⚠  is_deep_search_done error: {e}")
+        return False
+    finally:
+        cur.close()
+        conn.close()
+
+
+def mark_deep_search_done(symbol: str):
+    """Mark a symbol as having completed its one-time 20-day deep fetch."""
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO symbol_meta (symbol, deep_search_done, deep_search_at)
+            VALUES (%s, TRUE, NOW())
+            ON CONFLICT (symbol)
+            DO UPDATE SET deep_search_done = TRUE, deep_search_at = NOW()
+        """, (symbol.upper(),))
+        conn.commit()
+    except Exception as e:
+        print(f"  ⚠  mark_deep_search_done error: {e}")
+        conn.rollback()
+    finally:
+        cur.close()
+        conn.close()
 
 
 # ── Article helpers ───────────────────────────────────────────────────────────

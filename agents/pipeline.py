@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import argparse, time, threading
 from datetime import datetime
-from db_utils import migrate, get_conn
+from db_utils import migrate, get_conn, is_deep_search_done, mark_deep_search_done
 
 import agentX, agentY, agentZ, agentBacklog, agentWatchlist
 from groq_pool import SEARCH_POOL
@@ -75,7 +75,18 @@ def run_for_symbol(symbol: str):
 
         try:
             t = time.time()
-            fetched = agentWatchlist.run(symbol=symbol)
+
+            # ── DEEP SEARCH: first time this symbol is ever seen ──────────────
+            if not is_deep_search_done(symbol):
+                print(f"  🔭 First time seeing {symbol} — running deep fetch (20 days)...")
+                fetched = agentWatchlist.run(symbol=symbol, days=20)
+                mark_deep_search_done(symbol)
+                print(f"  ✅ Deep fetch complete — {symbol} marked, won't deep fetch again")
+            else:
+                # Already done before — normal 1hr fetch only
+                fetched = agentWatchlist.run(symbol=symbol)
+            # ─────────────────────────────────────────────────────────────────
+
             print(f"  ⏱  Watchlist fetch:    {time.time()-t:.1f}s  ({fetched} new articles)")
 
             t = time.time()
@@ -137,7 +148,7 @@ def run_once():
     # ── STEP 3: Tag ───────────────────────────────────────────────────────────
     try:
         t = time.time()
-        tagged = agentY.run(limit=500)
+        tagged = agentY.run(limit=1200)
         print(f"  ⏱  Tag layer:          {time.time()-t:.1f}s  ({tagged} tagged)")
     except Exception as e:
         print(f"  ⚠  Tag layer error: {e}")
@@ -159,7 +170,7 @@ def run_once():
     # ── STEP 5: Backlog ───────────────────────────────────────────────────────
     try:
         t = time.time()
-        backlog_done = agentBacklog.run()
+        backlog_done = agentBacklog.run(limit=1200)
         print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
     except Exception as e:
         print(f"  ⚠  Backlog layer error: {e}")

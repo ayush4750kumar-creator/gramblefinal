@@ -102,15 +102,21 @@ def get_all_watchlist_symbols() -> list:
         return []
 
 
-def fetch_news_for_symbol(symbol: str) -> list:
+def fetch_news_for_symbol(symbol: str, days: int = None) -> tuple:
+    """
+    Fetch news for a symbol.
+    days=None  → normal 1-hour filter
+    days=20    → deep fetch, 20-day window (first-time only)
+    """
     articles  = []
     seen_urls = set()
     skipped   = 0
+    hours_limit = (days * 24) if days else 1  # deep=480hrs, normal=1hr
 
     name  = SYMBOL_TO_NAME.get(symbol, symbol)
     query = f"{name} stock NSE BSE earnings results"
 
-    # Google News
+    # ── Google News ───────────────────────────────────────────────────────────
     try:
         q   = urllib.parse.quote(query)
         url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
@@ -121,8 +127,7 @@ def fetch_news_for_symbol(symbol: str) -> list:
             if not link or not title or link in seen_urls:
                 continue
             pub = parse_date(e)
-            # ── 1-hour filter ──────────────────────────────────────────────
-            if not is_recent(pub):
+            if not is_recent(pub, hours=hours_limit):
                 skipped += 1
                 continue
             seen_urls.add(link)
@@ -142,7 +147,7 @@ def fetch_news_for_symbol(symbol: str) -> list:
     except Exception as ex:
         print(f"  ⚠  GNews {symbol}: {ex}")
 
-    # Bing News as backup
+    # ── Bing News ─────────────────────────────────────────────────────────────
     try:
         q   = urllib.parse.quote(f"{name} stock")
         url = f"https://www.bing.com/news/search?q={q}&format=rss"
@@ -153,8 +158,7 @@ def fetch_news_for_symbol(symbol: str) -> list:
             if not link or not title or link in seen_urls:
                 continue
             pub = parse_date(e)
-            # ── 1-hour filter ──────────────────────────────────────────────
-            if not is_recent(pub):
+            if not is_recent(pub, hours=hours_limit):
                 skipped += 1
                 continue
             seen_urls.add(link)
@@ -201,10 +205,18 @@ def mark_ready(symbol: str):
         print(f"  ⚠  Could not mark ready: {e}")
 
 
-def run(symbol: str = None) -> int:
+def run(symbol: str = None, days: int = None) -> int:
+    """
+    Run the watchlist fetcher.
+    symbol=None  → fetch for all watchlist symbols
+    symbol='X'   → fetch for one symbol only
+    days=20      → deep fetch window (20 days), used for first-time symbols
+    days=None    → normal 1-hour window
+    """
     if symbol:
         symbols = [symbol.upper()]
-        print(f"  📋 Watchlist: fetching for {symbol}")
+        mode = f"deep ({days}d)" if days else "normal (1hr)"
+        print(f"  📋 Watchlist: fetching for {symbol} [{mode}]")
     else:
         symbols = get_all_watchlist_symbols()
         print(f"  📋 Watchlist: {len(symbols)} symbols — {', '.join(symbols[:10])}{'...' if len(symbols) > 10 else ''}")
@@ -213,14 +225,15 @@ def run(symbol: str = None) -> int:
         print("  ℹ  No watchlist symbols found.")
         return 0
 
-    all_articles = []
+    all_articles  = []
     total_skipped = 0
 
     for sym in symbols:
-        arts, skipped = fetch_news_for_symbol(sym)
-        all_articles += arts
+        arts, skipped = fetch_news_for_symbol(sym, days=days)
+        all_articles  += arts
         total_skipped += skipped
-        print(f"  📡 {sym}: {len(arts)} recent articles ({skipped} skipped — older than 1hr)")
+        label = f"older than {days}d" if days else "older than 1hr"
+        print(f"  📡 {sym}: {len(arts)} recent articles ({skipped} skipped — {label})")
         time.sleep(0.3)
 
     saved = save_articles(all_articles)
@@ -231,5 +244,6 @@ def run(symbol: str = None) -> int:
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--symbol', default='', help='Fetch for a specific symbol only')
+    p.add_argument('--days',   type=int, default=None, help='Deep fetch window in days')
     args = p.parse_args()
-    run(symbol=args.symbol or None)
+    run(symbol=args.symbol or None, days=args.days)
