@@ -1,10 +1,10 @@
 """
-agentBacklog.py — Parallel Backlog Processor (FIXED v5)
+agentBacklog.py — Parallel Backlog Processor (FIXED v6)
 
-Changes from v4:
-- get_backlog() accepts limit parameter
-- run() accepts limit parameter
-- Symbol search uses limit=5, main pipeline uses limit=100
+Changes from v5:
+- scrape_article() now returns both text AND og:image
+- Pexels fallback image when no og:image found
+- Saves image_url to DB during processing
 """
 import sys, os, time, json, threading, re, unicodedata
 sys.path.insert(0, os.path.dirname(__file__))
@@ -14,8 +14,18 @@ from groq_pool import MAIN_POOL, GroqKeyPool
 import requests
 import psycopg2.extras
 
-GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_URL      = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL    = "llama-3.1-8b-instant"
+PEXELS_KEY    = os.environ.get("PEXELS_API_KEY", "")
+PEXELS_URL    = "https://api.pexels.com/v1/search"
+
+SCRAPE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
 
 
 def sanitize(text: str) -> str:
@@ -31,29 +41,103 @@ def sanitize(text: str) -> str:
     return text
 
 
-def scrape_article_text(url: str) -> str:
+# ── Scrape article: returns text + og:image ───────────────────────────────────
+
+def scrape_article(url: str) -> dict:
+    """Scrape article URL — returns {text, image}"""
     if not url:
-        return ""
+        return {"text": "", "image": None}
     try:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        }
-        r = requests.get(url, headers=headers, timeout=10)
+        r = requests.get(url, headers=SCRAPE_HEADERS, timeout=10)
         if r.status_code != 200:
-            return ""
-        text = r.text
-        text = re.sub(r'<script[^>]*>.*?</script>', ' ', text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r'<style[^>]*>.*?</style>',  ' ', text, flags=re.DOTALL | re.IGNORECASE)
+            return {"text": "", "image": None}
+
+        html = r.text
+
+        # ── grab og:image (two attribute orders) ──────────────────────────
+        image = None
+        og = re.search(
+            r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](https?://[^"\']+)["\']',
+            html, re.IGNORECASE
+        )
+        if not og:
+            og = re.search(
+                r'<meta[^>]+content=["\'](https?://[^"\']+)["\'][^>]+property=["\']og:image["\']',
+                html, re.IGNORECASE
+            )
+        if not og:
+            # twitter:image fallback
+            og = re.search(
+                r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\'](https?://[^"\']+)["\']',
+                html, re.IGNORECASE
+            )
+        if og:
+            image = og.group(1).strip()
+
+        # ── strip html for text ───────────────────────────────────────────
+        text = re.sub(r'<script[^>]*>.*?</script>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<style[^>]*>.*?</style>',   ' ', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<[^>]+>', ' ', text)
         text = re.sub(r'\s+', ' ', text).strip()
-        return text[:5000]
-    except Exception:
-        return ""
 
+        return {"text": text[:5000], "image": image}
+
+    except Exception:
+        return {"text": "", "image": None}
+
+
+# ── Pexels fallback image ─────────────────────────────────────────────────────
+
+def get_pexels_image(query: str) -> str | None:
+    """Search Pexels for a relevant image. Returns URL or None."""
+    if not PEXELS_KEY:
+        return None
+    try:
+        # clean query — keep first 5 words, strip special chars
+        clean = re.sub(r'[^a-zA-Z0-9 ]', '', query)
+        clean = ' '.join(clean.split()[:5])
+        if not clean:
+            return None
+
+        r = requests.get(
+            PEXELS_URL,
+            headers={"Authorization": PEXELS_KEY},
+            params={"query": clean, "per_page": 1, "orientation": "landscape"},
+            timeout=8,
+        )
+        if r.status_code != 200:
+            return None
+
+        photos = r.json().get("photos", [])
+        if photos:
+            return photos[0]["src"]["large"]
+        return None
+    except Exception:
+        return None
+
+
+# ── Resolve image for an article ─────────────────────────────────────────────
+
+def resolve_image(article: dict, scraped_image: str | None) -> str | None:
+    """
+    Priority:
+    1. Already has image_url in DB → keep it
+    2. og:image from scrape → use it
+    3. Pexels search on title → use it
+    4. None → frontend will use placeholder
+    """
+    if article.get("image_url"):
+        return None  # already set, no update needed
+
+    if scraped_image:
+        return scraped_image
+
+    # Pexels fallback using title
+    title = article.get("title", "") or ""
+    return get_pexels_image(title)
+
+
+# ── DB helpers ────────────────────────────────────────────────────────────────
 
 class ArticleQueue:
     def __init__(self, articles: list):
@@ -76,22 +160,38 @@ def save_result(result: dict):
         conn = get_conn()
         cur  = conn.cursor()
         try:
-            cur.execute("""
-                UPDATE articles
-                SET sentiment_label=%s, sentiment_reason=%s,
-                    summary_60w=%s, is_ready=true
-                WHERE id=%s
-            """, (
-                result["sentiment_label"],
-                result["sentiment_reason"],
-                result["summary_60w"],
-                result["id"],
-            ))
+            if result.get("image_url"):
+                cur.execute("""
+                    UPDATE articles
+                    SET sentiment_label=%s, sentiment_reason=%s,
+                        summary_60w=%s, image_url=%s, is_ready=true
+                    WHERE id=%s
+                """, (
+                    result["sentiment_label"],
+                    result["sentiment_reason"],
+                    result["summary_60w"],
+                    result["image_url"],
+                    result["id"],
+                ))
+            else:
+                cur.execute("""
+                    UPDATE articles
+                    SET sentiment_label=%s, sentiment_reason=%s,
+                        summary_60w=%s, is_ready=true
+                    WHERE id=%s
+                """, (
+                    result["sentiment_label"],
+                    result["sentiment_reason"],
+                    result["summary_60w"],
+                    result["id"],
+                ))
             conn.commit()
         finally:
             cur.close()
             conn.close()
 
+
+# ── Groq call ─────────────────────────────────────────────────────────────────
 
 def groq_call(key: str, prompt: str, agent_id: int) -> str:
     consecutive_429 = 0
@@ -141,6 +241,8 @@ def groq_call(key: str, prompt: str, agent_id: int) -> str:
     return ""
 
 
+# ── Process one article ───────────────────────────────────────────────────────
+
 def process_one(key: str, article: dict, agent_id: int):
     title = article.get("title", "")     or ""
     text  = article.get("full_text", "") or ""
@@ -149,11 +251,15 @@ def process_one(key: str, article: dict, agent_id: int):
     title = sanitize(title)
     text  = sanitize(text)
 
+    scraped_image = None
+
     if len(text.strip()) < 200 and url:
         print(f"  🌐 Agent {agent_id}: scraping article {article['id']}")
-        scraped = scrape_article_text(url)
-        if scraped:
-            text = sanitize(scraped)
+        scraped = scrape_article(url)
+        scraped_image = scraped["image"]
+
+        if scraped["text"]:
+            text = sanitize(scraped["text"])
             try:
                 with _db_lock:
                     conn = get_conn()
@@ -167,6 +273,11 @@ def process_one(key: str, article: dict, agent_id: int):
                     conn.close()
             except Exception:
                 pass
+
+    # resolve image (og:image → pexels → None)
+    image_url = resolve_image(article, scraped_image)
+    if image_url:
+        print(f"  🖼  Agent {agent_id}: image resolved for article {article['id']}")
 
     combined = sanitize((title + "\n\n" + text[:3000]).strip())
 
@@ -226,6 +337,7 @@ CRITICAL RULES:
                 "sentiment_label":  label,
                 "sentiment_reason": reason,
                 "summary_60w":      summary,
+                "image_url":        image_url,  # None if already set or not found
             }
         else:
             print(f"  ❌ Agent {agent_id}: no JSON in response for article {article['id']}")
@@ -239,6 +351,8 @@ CRITICAL RULES:
 
     return None
 
+
+# ── Sub agent thread ──────────────────────────────────────────────────────────
 
 def sub_agent(agent_id: int, key: str, queue: ArticleQueue,
               counts: dict, lock: threading.Lock):
@@ -274,7 +388,7 @@ def get_backlog(symbol: str = None, limit: int = 100) -> list:
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     if symbol:
         cur.execute("""
-            SELECT id, title, full_text, url FROM articles
+            SELECT id, title, full_text, url, image_url FROM articles
             WHERE (summary_60w IS NULL OR summary_60w = '')
             AND (is_duplicate IS NULL OR is_duplicate = false)
             AND created_at > NOW() - INTERVAL '6 days'
@@ -283,7 +397,7 @@ def get_backlog(symbol: str = None, limit: int = 100) -> list:
         """, (symbol, limit))
     else:
         cur.execute("""
-            SELECT id, title, full_text, url FROM articles
+            SELECT id, title, full_text, url, image_url FROM articles
             WHERE (summary_60w IS NULL OR summary_60w = '')
             AND (is_duplicate IS NULL OR is_duplicate = false)
             AND created_at > NOW() - INTERVAL '6 days'
