@@ -1,10 +1,9 @@
 """
-agentBacklog.py — Parallel Backlog Processor (v7)
+agentBacklog.py — Parallel Backlog Processor (v8)
 
-Changes from v6:
-- Smart image resolution: symbol-based Pexels query
-- Logo blacklist — skips yahoo/google/bing/reuters logos
-- og:image only used if it looks like a real photo
+Changes from v7:
+- Smarter image resolution: falls back to title/summary keywords if no symbol
+- Removes repeated stock ticker / pexels placeholder images
 """
 import sys, os, time, json, threading, re, unicodedata
 sys.path.insert(0, os.path.dirname(__file__))
@@ -34,6 +33,13 @@ LOGO_BLACKLIST = [
     'economictimes', 'ndtv', 'livemint', 'businessstandard', 'cnbc',
     'marketwatch', 'seekingalpha', 'default', 'fallback', 'no-image',
     'noimage', 'blank', 'header', 'banner-logo', 'site-logo',
+]
+
+# Pexels URLs that are the repeated generic stock ticker / placeholder
+PEXELS_BLACKLIST = [
+    'pexels-photo-534216',   # the repeating stock ticker board
+    'pexels-photo-210607',   # common finance fallback
+    'pexels-photo-187041',   # stock market generic
 ]
 
 # Symbol → readable Pexels search query
@@ -91,6 +97,30 @@ SYMBOL_MAP = {
     "APOLLOHOSP":     "Apollo Hospital India",
 }
 
+# Category keywords → Pexels query
+CATEGORY_QUERY_MAP = [
+    (["ipo", "listing", "debut"],                        "stock exchange IPO listing"),
+    (["merger", "acquisition", "takeover", "buyout"],    "business merger handshake"),
+    (["dividend", "buyback", "split"],                   "investor finance dividend"),
+    (["earnings", "results", "profit", "revenue", "q1", "q2", "q3", "q4"], "corporate earnings report"),
+    (["bank", "banking", "loan", "credit", "npa"],       "bank finance building"),
+    (["oil", "crude", "opec", "petroleum", "energy"],    "oil refinery energy"),
+    (["gold", "silver", "commodity", "mcx"],             "gold silver commodity"),
+    (["pharma", "drug", "medicine", "hospital", "health"], "pharmacy medicine hospital"),
+    (["electric", "ev", "tesla", "battery", "automobile", "car", "auto"], "electric vehicle car"),
+    (["crypto", "bitcoin", "blockchain", "coinbase"],    "cryptocurrency bitcoin"),
+    (["real estate", "property", "housing", "reit"],     "real estate building"),
+    (["airline", "aviation", "airport", "flight"],       "airplane airport aviation"),
+    (["railway", "train", "irctc"],                      "train railway India"),
+    (["it", "software", "tech", "digital", "ai", "cloud"], "technology software office"),
+    (["fed", "rbi", "central bank", "rate", "inflation"], "central bank interest rate"),
+    (["trade", "export", "import", "tariff"],            "shipping container trade"),
+    (["startup", "unicorn", "funding", "venture"],       "startup office entrepreneur"),
+    (["solar", "wind", "renewable", "clean energy"],     "solar panel renewable energy"),
+    (["food", "consumer", "fmcg", "retail"],             "supermarket consumer goods"),
+    (["steel", "metal", "mining", "coal"],               "steel factory industry"),
+]
+
 
 def sanitize(text: str) -> str:
     if not text:
@@ -103,6 +133,28 @@ def sanitize(text: str) -> str:
     text = unicodedata.normalize("NFKD", text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
+
+
+def extract_pexels_query(title: str, summary: str = "") -> str:
+    """
+    Build a meaningful Pexels search query from title + summary.
+    Matches against CATEGORY_QUERY_MAP keywords.
+    Falls back to first 4 meaningful words of title.
+    """
+    combined = (title + " " + (summary or "")).lower()
+
+    for keywords, query in CATEGORY_QUERY_MAP:
+        if any(kw in combined for kw in keywords):
+            return query
+
+    # fallback: take first 4 non-trivial words from title
+    stop = {"the", "a", "an", "is", "are", "was", "were", "of", "in",
+            "on", "at", "to", "for", "by", "with", "and", "or", "but",
+            "after", "before", "as", "from", "that", "this", "its"}
+    words = [w for w in re.sub(r'[^a-z\s]', '', title.lower()).split()
+             if w not in stop and len(w) > 2]
+    query = " ".join(words[:4])
+    return query if query else "business finance news"
 
 
 # ── Scrape article: returns text + og:image ───────────────────────────────────
@@ -155,7 +207,11 @@ def is_real_image(url: str) -> bool:
     if not url:
         return False
     url_lower = url.lower()
-    return not any(word in url_lower for word in LOGO_BLACKLIST)
+    if any(word in url_lower for word in LOGO_BLACKLIST):
+        return False
+    if any(bad in url_lower for bad in PEXELS_BLACKLIST):
+        return False
+    return True
 
 
 def get_pexels_image(query: str) -> str | None:
@@ -166,13 +222,16 @@ def get_pexels_image(query: str) -> str | None:
         r = requests.get(
             PEXELS_URL,
             headers={"Authorization": PEXELS_KEY},
-            params={"query": query, "per_page": 1, "orientation": "landscape"},
+            params={"query": query, "per_page": 3, "orientation": "landscape"},
             timeout=8,
         )
         if r.status_code != 200:
             return None
         photos = r.json().get("photos", [])
-        if photos:
+        # pick second photo if available to add variety
+        if len(photos) >= 2:
+            return photos[1]["src"]["large"]
+        elif photos:
             return photos[0]["src"]["large"]
         return None
     except Exception:
@@ -182,25 +241,44 @@ def get_pexels_image(query: str) -> str | None:
 def resolve_image(article: dict, scraped_image: str | None) -> str | None:
     """
     Priority:
-    1. Already has image_url in DB → skip (return None = no update)
+    1. Already has a real image_url in DB → skip (return None = no update)
     2. og:image looks like a real photo → use it
-    3. Pexels with symbol/company name → use it
-    4. None → frontend placeholder
+    3. Pexels with symbol map → use it
+    4. Pexels with category keywords from title/summary → use it
+    5. None
     """
-    if article.get("image_url"):
-        return None  # already set, no update needed
+    existing = article.get("image_url", "")
+    # skip if already has a real non-placeholder image
+    if existing and is_real_image(existing):
+        return None
 
     # og:image only if it's a real photo not a logo
     if scraped_image and is_real_image(scraped_image):
         return scraped_image
 
-    # Pexels — use symbol map first, fall back to raw symbol
     symbol = (article.get("symbol") or "").upper().strip()
-    pexels_query = SYMBOL_MAP.get(
-        symbol,
-        f"{symbol} stock market finance" if symbol else "stock market finance"
-    )
-    return get_pexels_image(pexels_query)
+
+    # symbol map lookup
+    if symbol and symbol in SYMBOL_MAP:
+        img = get_pexels_image(SYMBOL_MAP[symbol])
+        if img:
+            return img
+
+    # category/keyword extraction from title + summary
+    title   = article.get("title", "") or ""
+    summary = article.get("summary_60w", "") or ""
+    query   = extract_pexels_query(title, summary)
+    img     = get_pexels_image(query)
+    if img:
+        return img
+
+    # last resort: generic symbol fallback
+    if symbol:
+        img = get_pexels_image(f"{symbol} stock market finance India")
+        if img:
+            return img
+
+    return None
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -341,11 +419,6 @@ def process_one(key: str, article: dict, agent_id: int):
             except Exception:
                 pass
 
-    # resolve image
-    image_url = resolve_image(article, scraped_image)
-    if image_url:
-        print(f"  🖼  Agent {agent_id}: image resolved for article {article['id']}")
-
     combined = sanitize((title + "\n\n" + text[:3000]).strip())
 
     if not combined or len(combined) < 20:
@@ -398,6 +471,12 @@ CRITICAL RULES:
                 summary = " ".join(words[:60]) if len(words) > 60 else padded
 
             reason = data.get("reason", "").strip() or f"{label.capitalize()} signal detected."
+
+            # resolve image AFTER we have the summary (so extract_pexels_query can use it)
+            article["summary_60w"] = summary
+            image_url = resolve_image(article, scraped_image)
+            if image_url:
+                print(f"  🖼  Agent {agent_id}: image resolved for article {article['id']}")
 
             return {
                 "id":               article["id"],
