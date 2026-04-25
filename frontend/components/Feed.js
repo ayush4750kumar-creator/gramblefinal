@@ -12,7 +12,7 @@ const PLACEHOLDER  = 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236
 const API          = 'https://gramblefinal-production.up.railway.app/api/news';
 const SEARCH_API   = 'https://gramblefinal-production.up.railway.app/api/search';
 const PAGE_SIZE    = 50;
-const AUTO_REFRESH = 60 * 1000; // 60s
+const AUTO_REFRESH = 60 * 1000;
 
 const EXCHANGE_TABS = [
   { key:'NSE',    label:'NSE',    color:'#7c3aed' },
@@ -26,8 +26,31 @@ const EXCHANGE_SOURCES = {
   NASDAQ: ['nasdaq','techcrunch','the verge','wired','reuters','bloomberg','cnbc','marketwatch'],
   NYSE:   ['nyse','wall street','wsj','ap news','financial times','seeking alpha','yahoo finance'],
 };
+
+// Only filter truly bad content — NOT by source
 const BAD_KEYWORDS = ['wrestlemania','wwe','cricket','ipl','bollywood','celebrity'];
-const ALL_EXCHANGE_SOURCES = Object.values(EXCHANGE_SOURCES).flat();
+
+// ── localStorage cache ─────────────────────────────────────────────────────
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+function cacheKey(view) {
+  if (!view || view === 'feed') return 'gramble_cache_feed';
+  if (view?.type === 'stock') return `gramble_cache_stock_${view.symbol}`;
+  return `gramble_cache_${view}`;
+}
+function saveCache(view, articles) {
+  try {
+    localStorage.setItem(cacheKey(view), JSON.stringify({ ts: Date.now(), articles }));
+  } catch (_) {}
+}
+function loadCache(view) {
+  try {
+    const raw = localStorage.getItem(cacheKey(view));
+    if (!raw) return null;
+    const { ts, articles } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL) return null;
+    return articles;
+  } catch (_) { return null; }
+}
 
 function isHindi(text) {
   if (!text) return false;
@@ -48,12 +71,13 @@ function timeAgo(dateStr) {
   if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
   return `${Math.floor(diff/86400)}d ago`;
 }
+
+// FIX: filterGlobal now only removes junk content, NOT legitimate news sources
 function filterGlobal(data) {
   return data.filter(a => {
-    const src = [(a.source||''),(a.tag_source_name||''),(a.agent_source||'')].join(' ').toLowerCase();
-    return !ALL_EXCHANGE_SOURCES.some(s => src.includes(s))
-      && !isHindi(a.title)
-      && !BAD_KEYWORDS.some(k => (a.title||'').toLowerCase().includes(k));
+    if (isHindi(a.title)) return false;
+    if (BAD_KEYWORDS.some(k => (a.title||'').toLowerCase().includes(k))) return false;
+    return true;
   });
 }
 
@@ -68,7 +92,6 @@ function useIsMobile() {
   return m;
 }
 
-// ── URL hash helpers ───────────────────────────────────────────────────────────
 function viewToHash(view) {
   if (!view || view === 'feed') return '';
   if (view?.type === 'stock') return view.symbol;
@@ -361,13 +384,22 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   useEffect(() => {
     stopPolling();
     stopRefresh();
-    setLoading(true);
-    setArticles([]);
     setNewArticles([]);
     setFetching(false);
     setPage(1);
     setHasMore(true);
     latestDate.current = null;
+    // Only show spinner if no cache — otherwise keep showing cached content
+    const hasCached = !!loadCache(view)?.length;
+    if (!hasCached) { setLoading(true); setArticles([]); }
+
+    // Show cached articles instantly so user sees content on refresh
+    const cached = loadCache(view);
+    if (cached && cached.length) {
+      setArticles(cached);
+      latestDate.current = cached[0]?.published_at || null;
+      setLoading(false);
+    }
 
     const timer = setTimeout(async () => {
       if (isStock) {
@@ -375,18 +407,24 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
         fetch(`${SEARCH_API}/news?symbol=${sym}`).catch(()=>{});
         const d = await fetch(`${API}?limit=100&symbol=${sym}`).catch(()=>({json:()=>({data:[]})}));
         const data = (await d.json()).data || [];
-        setArticles(data);
-        latestDate.current = data[0]?.published_at || null;
+        if (data.length) {
+          setArticles(data);
+          latestDate.current = data[0]?.published_at || null;
+          saveCache(view, data);
+        }
         setLoading(false);
-        if (!data.length) { setFetching(true); startPolling(sym); }
+        if (!data.length && !cached?.length) { setFetching(true); startPolling(sym); }
         else startRefresh(view);
       } else {
         const d = await fetch(buildUrl(1)).catch(()=>({json:()=>({data:[],pagination:{hasMore:false}})}));
         const json = await d.json();
         let data = json.data || [];
         if (!isExchange) data = filterGlobal(data);
-        setArticles(data);
-        latestDate.current = data[0]?.published_at || null;
+        if (data.length) {
+          setArticles(data);
+          latestDate.current = data[0]?.published_at || null;
+          saveCache(view, data);
+        }
         setHasMore(json.pagination?.hasMore ?? false);
         setLoading(false);
         startRefresh(view);
