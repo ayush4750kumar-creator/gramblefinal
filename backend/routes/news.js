@@ -5,14 +5,14 @@ const { pool } = require('../config/database');
 router.get('/', async (req, res) => {
   try {
     const page      = parseInt(req.query.page)  || 1;
-    const limit     = Math.min(parseInt(req.query.limit) || 50, 200); // cap at 200
+    const limit     = parseInt(req.query.limit) || 50;
     const symbol    = req.query.symbol    || null;
     const sentiment = req.query.sentiment || null;
     const category  = req.query.category  || null;
     const feed      = req.query.feed      || null;
     const offset    = (page - 1) * limit;
 
-    // Cache global feed on Vercel CDN for 60s; private for filtered queries
+    // Cache global feed on Vercel CDN for 60s
     if (!symbol && !sentiment && !category && !feed) {
       res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
     } else {
@@ -31,17 +31,7 @@ router.get('/', async (req, res) => {
     if (category)  { where += ` AND a.tag_category = $${p++}`;     params.push(category); }
     if (feed)      { where += ` AND a.tag_feed = $${p++}`;         params.push(feed); }
 
-    // Count total unique articles for pagination
-    const countResult = await pool.query(`
-      SELECT COUNT(*) as count FROM (
-        SELECT DISTINCT ON (lower(regexp_replace(a.title, '[^a-zA-Z0-9 ]', '', 'g')))
-          id FROM articles a ${where}
-        ORDER BY lower(regexp_replace(a.title, '[^a-zA-Z0-9 ]', '', 'g')), a.published_at DESC
-      ) counted
-    `, params);
-    const total = parseInt(countResult.rows[0]?.count || 0);
-
-    // Fetch page with DB-level LIMIT/OFFSET
+    // DISTINCT ON dedup — wrapped in subquery to re-sort by date
     const result = await pool.query(`
       SELECT * FROM (
         SELECT DISTINCT ON (lower(regexp_replace(a.title, '[^a-zA-Z0-9 ]', '', 'g')))
@@ -55,12 +45,15 @@ router.get('/', async (req, res) => {
                  a.published_at DESC
       ) deduped
       ORDER BY published_at DESC
-      LIMIT $${p++} OFFSET $${p++}
-    `, [...params, limit, offset]);
+    `, params);
+
+    // Paginate in JS (safe — avoids LIMIT/OFFSET conflict with DISTINCT ON)
+    const total     = result.rows.length;
+    const paginated = result.rows.slice(offset, offset + limit);
 
     res.json({
       success: true,
-      data: result.rows,
+      data: paginated,
       pagination: { page, limit, total, hasMore: offset + limit < total }
     });
   } catch (err) {
