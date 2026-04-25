@@ -2,8 +2,37 @@
 fetch_utils.py — Shared helpers for RSS parsing, article scraping, and symbol matching.
 """
 import feedparser, requests, re, time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
+
+# ── 1-hour fetch window — only articles published in last 1 hour ─────────────
+FETCH_WINDOW_HOURS = 1
+
+def is_recent(pub) -> bool:
+    """Returns True only if article was published within FETCH_WINDOW_HOURS."""
+    try:
+        if isinstance(pub, str):
+            for fmt in (
+                '%Y-%m-%d %H:%M:%S',
+                '%a, %d %b %Y %H:%M:%S %z',
+                '%Y-%m-%dT%H:%M:%S%z',
+                '%Y-%m-%dT%H:%M:%SZ',
+                '%d %b %Y %H:%M:%S %z',
+            ):
+                try:
+                    pub = datetime.strptime(pub, fmt)
+                    break
+                except ValueError:
+                    continue
+        if isinstance(pub, datetime):
+            if pub.tzinfo is None:
+                pub = pub.replace(tzinfo=timezone.utc)
+            age = datetime.now(timezone.utc) - pub
+            return age <= timedelta(hours=FETCH_WINDOW_HOURS)
+    except Exception:
+        pass
+    # If we can't parse the date, let it through to avoid dropping valid articles
+    return True
 
 # ── NSE F&O + large-cap symbols with name variants for company matching ──────
 COMPANY_MAP = {
@@ -114,7 +143,6 @@ def is_after_hours(dt_str: str) -> int:
     """Return 1 if the article was published outside 9:00–15:30 IST."""
     try:
         dt = datetime.strptime(dt_str[:19], '%Y-%m-%d %H:%M:%S')
-        # IST offset = UTC+5:30
         ist_hour = (dt.hour + 5) % 24
         ist_min  = dt.minute + 30
         if ist_min >= 60:
@@ -132,7 +160,7 @@ def fetch_article_text(url: str, timeout=3) -> str:
         a = Article(url)
         a.download()
         a.parse()
-        return a.text[:4000]   # cap at 4k chars
+        return a.text[:4000]
     except Exception:
         pass
     try:
@@ -147,20 +175,15 @@ def fetch_article_text(url: str, timeout=3) -> str:
 
 # ── Financial relevance filter ────────────────────────────────────────────────
 FINANCIAL_KEYWORDS = [
-    # Markets
     "stock", "share", "market", "nifty", "sensex", "bse", "nse", "nasdaq", "dow",
     "s&p", "nyse", "rally", "surge", "fall", "drop", "gain", "loss", "trade",
-    # Companies
     "company", "corp", "ltd", "limited", "inc", "earnings", "revenue", "profit",
     "quarterly", "results", "q1", "q2", "q3", "q4", "ipo", "listing",
-    # Finance
     "bank", "rbi", "sebi", "fed", "interest rate", "inflation", "gdp", "economy",
     "investment", "investor", "fund", "mutual fund", "etf", "bond", "rupee",
     "dollar", "forex", "crude", "oil", "gold", "commodity",
-    # Actions
     "merger", "acquisition", "buyback", "dividend", "split", "deal", "bid",
     "upgrade", "downgrade", "target price", "analyst", "rating",
-    # Indian specific
     "crore", "lakh", "sebi", "nse", "bse", "mcx", "lic", "fii", "dii",
 ]
 

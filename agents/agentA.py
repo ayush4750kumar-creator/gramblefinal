@@ -6,7 +6,7 @@ Sources: MoneyControl, Economic Times Markets, LiveMint, Business Standard, Yaho
 import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, COMPANY_MAP, HEADERS, is_financial
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, COMPANY_MAP, HEADERS, is_financial
 from db_utils import save_articles
 from datetime import datetime
 import requests, time
@@ -27,12 +27,11 @@ COMPANY_PATTERN = re.compile(
 )
 
 def detect_feed(symbol: str, title: str) -> str:
-    """AgentA only fetches from stock/market feeds — always company."""
     if symbol and symbol.strip():
         return 'company'
     if title and COMPANY_PATTERN.search(title):
         return 'company'
-    return 'company'   # default: AgentA is a company-news agent
+    return 'company'
 
 def fetch_yahoo_per_stock(symbols: list) -> list:
     articles = []
@@ -42,7 +41,10 @@ def fetch_yahoo_per_stock(symbols: list) -> list:
             url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
             entries = fetch_rss(url, f"Yahoo/{sym}", timeout=6)
             for e in entries[:10]:
-                pub  = parse_date(e)
+                pub = parse_date(e)
+                # ── 1-hour filter ──────────────────────────────────────────
+                if not is_recent(pub):
+                    continue
                 link = e.get('link', '')
                 if not link:
                     continue
@@ -69,6 +71,7 @@ def run() -> int:
     articles = []
     seen_urls = set()
     live_feeds = 0
+    skipped_old = 0
 
     for source_name, url in SOURCES:
         entries = fetch_rss(url, source_name)
@@ -78,11 +81,15 @@ def run() -> int:
             link = e.get('link', '')
             if not link or link in seen_urls:
                 continue
+            pub = parse_date(e)
+            # ── 1-hour filter ──────────────────────────────────────────────
+            if not is_recent(pub):
+                skipped_old += 1
+                continue
             seen_urls.add(link)
             title   = e.get('title', '')
             summary = clean_html(e.get('summary', '') or e.get('description', ''))
             symbol  = extract_symbol(title + ' ' + summary)
-            pub     = parse_date(e)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -97,11 +104,11 @@ def run() -> int:
                 'tag_after_hours': is_after_hours(pub),
             })
 
-    print(f"  📡 RSS: {len(articles)} articles from {live_feeds}/{len(SOURCES)} feeds")
+    print(f"  📡 RSS: {len(articles)} recent articles from {live_feeds}/{len(SOURCES)} feeds ({skipped_old} skipped — older than 1hr)")
 
     yahoo_arts = fetch_yahoo_per_stock(list(COMPANY_MAP.keys()))
     articles += yahoo_arts
-    print(f"  📡 Yahoo per-stock: {len(yahoo_arts)} articles")
+    print(f"  📡 Yahoo per-stock: {len(yahoo_arts)} recent articles")
 
     saved = save_articles(articles)
     print(f"  ✅ AgentA done — {len(articles)} total, {saved} new saved\n")

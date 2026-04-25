@@ -6,7 +6,7 @@ Sources: MoneyControl pre-market, CNBC TV18, Investing.com, SGX/GIFT Nifty via y
 import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, HEADERS, is_financial
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, is_financial
 from db_utils import save_articles
 from datetime import datetime
 import requests, time
@@ -53,8 +53,11 @@ def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> 
             title = e.get('title', '')
             if not link or not title or not is_market_news(title):
                 continue
+            pub = parse_date(e)
+            # ── 1-hour filter ──────────────────────────────────────────────
+            if not is_recent(pub):
+                continue
             symbol = extract_symbol(title)
-            pub    = parse_date(e)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -73,6 +76,7 @@ def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> 
     return articles
 
 def fetch_gift_nifty():
+    # GIFT Nifty is a synthetic article generated now — always recent, no filter needed
     articles = []
     try:
         import yfinance as yf
@@ -125,6 +129,7 @@ def run() -> int:
     articles = []
     seen_urls = set()
     live_feeds = 0
+    skipped_old = 0
 
     for source_name, url in SOURCES:
         entries = fetch_rss(url, source_name)
@@ -134,11 +139,15 @@ def run() -> int:
             link = e.get('link', '')
             if not link or link in seen_urls:
                 continue
+            pub = parse_date(e)
+            # ── 1-hour filter ──────────────────────────────────────────────
+            if not is_recent(pub):
+                skipped_old += 1
+                continue
             seen_urls.add(link)
             title   = e.get('title', '')
             summary = clean_html(e.get('summary', '') or e.get('description', ''))
             symbol  = extract_symbol(title + ' ' + summary)
-            pub     = parse_date(e)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -153,7 +162,7 @@ def run() -> int:
                 'tag_after_hours': 1,
             })
 
-    print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} feeds live, {len(articles)} articles")
+    print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} feeds live, {len(articles)} recent articles ({skipped_old} skipped)")
 
     for q in ["Nifty Sensex pre-market open", "India stock market opening today", "SGX Nifty gift nifty today"]:
         articles += fetch_google_news(q, "B", "analysis")

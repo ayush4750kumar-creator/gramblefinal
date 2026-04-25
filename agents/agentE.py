@@ -1,29 +1,29 @@
-from agentB import fetch_google_news
 """
 agentE.py — Political Leaders & Global Announcements
 Sources: Reuters World, AP News, BBC Business/World, PIB India, ANI, RBI press releases
+
+NOTE: RBI press releases have NO time filter — official releases always saved.
+All RSS feeds use 1-hour filter.
 """
+from agentB import fetch_google_news
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, HEADERS, is_financial
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, is_financial
 from db_utils import save_articles
 from datetime import datetime
 import requests
 
 SOURCES = [
-    # Global news
     ("BBC Business",       "http://feeds.bbci.co.uk/news/business/rss.xml",     "BBC News"),
     ("BBC World",          "http://feeds.bbci.co.uk/news/world/rss.xml",        "BBC News"),
     ("Guardian Business",  "https://www.theguardian.com/us/business/rss",       "The Guardian"),
     ("Al Jazeera Economy", "https://www.aljazeera.com/xml/rss/all.xml",         "Al Jazeera"),
-    # India official
     ("PIB India",          "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3", "PIB (Govt of India)"),
     ("PIB Finance",        "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1",    "PIB Finance"),
     ("NDTV India",         "https://feeds.feedburner.com/ndtvnews-india-news",  "NDTV"),
 ]
 
-# Keywords that make an article "political / global announcement"
 GLOBAL_KEYWORDS = [
     "rbi", "sebi", "niti aayog", "finance minister", "nirmala sitharaman",
     "prime minister", "president", "white house", "federal reserve", "fed ",
@@ -39,10 +39,9 @@ def is_global_announcement(text: str) -> bool:
     return any(kw in t for kw in GLOBAL_KEYWORDS)
 
 def fetch_rbi_releases() -> list:
-    """RBI press releases RSS."""
+    """RBI press releases — NO time filter, always save official releases."""
     articles = []
     try:
-        url = "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx"
         rss_url = "https://www.rbi.org.in/scripts/rss.aspx?Id=4"
         entries = fetch_rss(rss_url, "RBI Press Releases", timeout=8)
         for e in entries[:20]:
@@ -71,6 +70,7 @@ def run() -> int:
     articles = []
     seen_urls = set()
     live_feeds = 0
+    skipped_old = 0
 
     for source_name, url, display_name in SOURCES:
         entries = fetch_rss(url, source_name)
@@ -83,12 +83,15 @@ def run() -> int:
             title = e.get('title', '')
             summary = clean_html(e.get('summary', '') or e.get('description', ''))
             combined = title + ' ' + summary
-            # AgentE focuses on political / macro articles
             if not is_global_announcement(combined) and source_name not in ('PIB India', 'PIB Finance', 'ANI News'):
+                continue
+            pub = parse_date(e)
+            # ── 1-hour filter ──────────────────────────────────────────────
+            if not is_recent(pub):
+                skipped_old += 1
                 continue
             seen_urls.add(link)
             symbol = extract_symbol(combined)
-            pub = parse_date(e)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -103,16 +106,18 @@ def run() -> int:
                 'tag_after_hours': is_after_hours(pub),
             })
 
-    print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} live, {len(articles)} articles")
+    print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} live, {len(articles)} recent articles ({skipped_old} skipped)")
 
     for q in ["RBI monetary policy rate decision", "Federal Reserve interest rate decision", "India budget tax policy economy", "global trade tariff oil price"]:
         gnews = fetch_google_news(q, "E", "official")
         for a in gnews:
             if is_global_announcement(a["title"] + " " + a["full_text"]):
                 articles.append(a)
+
+    # RBI releases — no time filter
     rbi = fetch_rbi_releases()
     articles += rbi
-    print(f"  📡 RBI: {len(rbi)} releases")
+    print(f"  📡 RBI: {len(rbi)} releases (no time filter)")
 
     saved = save_articles(articles)
     print(f"  ✅ AgentE done — {len(articles)} total, {saved} new saved\n")

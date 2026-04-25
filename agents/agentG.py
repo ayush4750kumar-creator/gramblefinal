@@ -1,14 +1,12 @@
 """
 agentG.py — Current Trading Session News
 Runs during market hours (9:15–15:30 IST). Live fluctuations, intraday analysis.
-Sources: NSE live, yfinance intraday, TradingView-compatible feeds, Tickertape,
-         MoneyControl live, ET Markets live
 """
 from agentB import fetch_google_news
 import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, HEADERS, is_financial, COMPANY_MAP
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, is_financial, COMPANY_MAP
 from db_utils import save_articles
 from datetime import datetime
 import requests, time
@@ -50,6 +48,7 @@ def run() -> int:
     articles = []
     seen_urls = set()
     live_feeds = 0
+    skipped_old = 0
 
     for source_name, url, display_name in LIVE_SOURCES:
         entries = fetch_rss(url, source_name)
@@ -64,9 +63,13 @@ def run() -> int:
             combined = title + ' ' + summary
             if not is_live_article(combined):
                 continue
+            pub = parse_date(e)
+            # ── 1-hour filter ──────────────────────────────────────────────
+            if not is_recent(pub):
+                skipped_old += 1
+                continue
             seen_urls.add(link)
             symbol = extract_symbol(combined)
-            pub    = parse_date(e)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -81,17 +84,14 @@ def run() -> int:
                 'tag_after_hours': is_after_hours(pub),
             })
 
-    print(f"  📡 RSS: {live_feeds}/{len(LIVE_SOURCES)} live, {len(articles)} intraday articles")
+    print(f"  📡 RSS: {live_feeds}/{len(LIVE_SOURCES)} live, {len(articles)} recent intraday articles ({skipped_old} skipped)")
 
     for q in ["Nifty Sensex intraday surge fall today", "NSE BSE stock circuit breaker today", "India stocks trading volume today"]:
         gnews = fetch_google_news(q, "G", "analysis")
         for a in gnews:
             if is_live_article(a["title"] + " " + a["full_text"]):
-                # fix tag_feed on google news articles too
                 a['tag_feed'] = detect_feed(a.get('symbol', ''), a.get('title', ''))
                 articles.append(a)
-
-    print(f"  📡 Intraday movers: 0")
 
     saved = save_articles(articles)
     print(f"  ✅ AgentG done — {len(articles)} total, {saved} new saved\n")

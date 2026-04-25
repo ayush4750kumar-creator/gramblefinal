@@ -1,12 +1,15 @@
 """
 agentF.py — Official Exchange & Market News
 Sources: NSE India press, NYSE press, NASDAQ news, Wall Street Journal RSS, Financial Times RSS
+
+NOTE: NSE press releases and SEBI orders have NO time filter — always saved.
+RSS feeds use 1-hour filter.
 """
 from agentB import fetch_google_news
 import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, HEADERS, is_financial
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, is_financial
 from db_utils import save_articles
 from datetime import datetime, timedelta
 import requests, time
@@ -35,6 +38,7 @@ def detect_feed(symbol: str, title: str) -> str:
     return 'global'
 
 def fetch_nse_press_releases() -> list:
+    """NSE press releases — NO time filter."""
     articles = []
     try:
         session = requests.Session()
@@ -66,6 +70,7 @@ def fetch_nse_press_releases() -> list:
     return articles
 
 def fetch_sebi_orders() -> list:
+    """SEBI orders — NO time filter."""
     articles = []
     try:
         url     = "https://www.sebi.gov.in/sebi_data/attachdocs/rss.xml"
@@ -97,6 +102,7 @@ def run() -> int:
     articles = []
     seen_urls = set()
     live_feeds = 0
+    skipped_old = 0
 
     for source_name, url, display_name in SOURCES:
         entries = fetch_rss(url, source_name)
@@ -106,11 +112,15 @@ def run() -> int:
             link = e.get('link', '')
             if not link or link in seen_urls:
                 continue
+            pub = parse_date(e)
+            # ── 1-hour filter ──────────────────────────────────────────────
+            if not is_recent(pub):
+                skipped_old += 1
+                continue
             seen_urls.add(link)
             title   = e.get('title', '')
             summary = clean_html(e.get('summary', '') or e.get('description', ''))
             symbol  = extract_symbol(title + ' ' + summary)
-            pub     = parse_date(e)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -125,12 +135,13 @@ def run() -> int:
                 'tag_after_hours': is_after_hours(pub),
             })
 
-    print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} live, {len(articles)} articles")
+    print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} live, {len(articles)} recent articles ({skipped_old} skipped)")
 
+    # Official sources — no time filter
     nse  = fetch_nse_press_releases()
     sebi = fetch_sebi_orders()
     articles += nse + sebi
-    print(f"  📡 NSE Press: {len(nse)} | SEBI: {len(sebi)}")
+    print(f"  📡 NSE Press: {len(nse)} | SEBI: {len(sebi)} (no time filter)")
 
     saved = save_articles(articles)
     print(f"  ✅ AgentF done — {len(articles)} total, {saved} new saved\n")

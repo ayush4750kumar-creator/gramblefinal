@@ -22,8 +22,27 @@ BANNER = """
 _running_symbols: set = set()
 _running_lock = threading.Lock()
 
-# Flag to pause main backlog when a symbol search is active
 _search_running = threading.Event()
+
+
+def cleanup_old_articles():
+    """Delete articles older than 7 days — runs at the start of every pipeline run."""
+    conn = get_conn()
+    cur  = conn.cursor()
+    try:
+        cur.execute("""
+            DELETE FROM articles
+            WHERE published_at < NOW() - INTERVAL '7 days'
+        """)
+        deleted = cur.rowcount
+        conn.commit()
+        print(f"  🗑  Cleaned up {deleted} articles older than 7 days")
+    except Exception as e:
+        print(f"  ⚠  Cleanup error: {e}")
+        conn.rollback()
+    finally:
+        cur.close()
+        conn.close()
 
 
 def clear_all_articles():
@@ -45,7 +64,6 @@ def run_for_symbol(symbol: str):
             return
         _running_symbols.add(symbol)
 
-    # Signal main pipeline to pause its backlog
     _search_running.set()
 
     try:
@@ -68,12 +86,10 @@ def run_for_symbol(symbol: str):
             duped = agentZ.run(hours=48)
             print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
 
-            # Backlog FIRST with limit=5 using SEARCH_POOL
             t = time.time()
             backlog_done = agentBacklog.run(pool=SEARCH_POOL, symbol=symbol, limit=5)
             print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
 
-            # THEN mark ready — site shows articles only with summaries
             from agentWatchlist import mark_ready
             mark_ready(symbol)
 
@@ -96,7 +112,13 @@ def run_once():
     print(f"{'─'*55}")
     t_total = time.time()
 
-    # ── STEP 1: Fetch all articles ─────────────────────────────────────────
+    # ── STEP 0: Auto-delete articles older than 7 days ────────────────────────
+    try:
+        cleanup_old_articles()
+    except Exception as e:
+        print(f"  ⚠  Cleanup error: {e}")
+
+    # ── STEP 1: Fetch all articles (1-hour window applied inside each agent) ──
     try:
         t = time.time()
         fetched = agentX.run(parallel=True)
@@ -104,7 +126,7 @@ def run_once():
     except Exception as e:
         print(f"  ⚠  Fetch layer error: {e}")
 
-    # ── STEP 2: Watchlist (must be BEFORE dedup so its articles get deduped) ──
+    # ── STEP 2: Watchlist ─────────────────────────────────────────────────────
     try:
         t = time.time()
         watchlist_saved = agentWatchlist.run()
@@ -112,7 +134,7 @@ def run_once():
     except Exception as e:
         print(f"  ⚠  Watchlist layer error: {e}")
 
-    # ── STEP 3: Tag everything that was just fetched ───────────────────────
+    # ── STEP 3: Tag ───────────────────────────────────────────────────────────
     try:
         t = time.time()
         tagged = agentY.run(limit=500)
@@ -120,7 +142,7 @@ def run_once():
     except Exception as e:
         print(f"  ⚠  Tag layer error: {e}")
 
-    # ── STEP 4: Dedup NOW covers ALL articles (fetch + watchlist) ──────────
+    # ── STEP 4: Dedup ─────────────────────────────────────────────────────────
     try:
         t = time.time()
         duped = agentZ.run(hours=48)
@@ -134,7 +156,7 @@ def run_once():
         _search_running.wait()
         print(f"  ▶️  Search done — resuming main backlog")
 
-    # ── STEP 5: Backlog ────────────────────────────────────────────────────
+    # ── STEP 5: Backlog ───────────────────────────────────────────────────────
     try:
         t = time.time()
         backlog_done = agentBacklog.run()
@@ -145,7 +167,6 @@ def run_once():
     print(f"\n✅ Pipeline complete in {time.time()-t_total:.1f}s\n")
 
 
-# ── Wire trigger AFTER run_for_symbol is defined ──────────────────────────────
 healthcheck.set_trigger(run_for_symbol)
 healthcheck.start()
 
@@ -155,7 +176,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--loop',     action='store_true')
-    parser.add_argument('--interval', type=int, default=5)
+    parser.add_argument('--interval', type=int, default=30)
     parser.add_argument('--clear',    action='store_true')
     parser.add_argument('--symbol',   default='')
     args = parser.parse_args()

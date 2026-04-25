@@ -2,11 +2,14 @@
 agentC.py — After-Session Impact News
 Identifies after-hours articles that will affect the NEXT trading session.
 Sources: NSE announcements, BSE after-hours, MoneyControl evening, Reuters evening
+
+NOTE: 1-hour filter is applied to RSS feeds only.
+BSE/NSE official filings are NOT filtered — they are time-sensitive regulatory data.
 """
 import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, HEADERS, is_financial
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, is_financial
 from db_utils import save_articles
 from datetime import datetime
 import requests, json, time
@@ -38,12 +41,11 @@ COMPANY_PATTERN = re.compile(
 )
 
 def detect_feed(symbol: str, title: str) -> str:
-    """AgentC fetches company-impact news — default to company."""
     if symbol and symbol.strip():
         return 'company'
     if title and COMPANY_PATTERN.search(title):
         return 'company'
-    return 'company'   # AgentC is a company-news agent
+    return 'company'
 
 def is_impact_article(text: str) -> bool:
     return any(kw in text.lower() for kw in IMPACT_KEYWORDS)
@@ -70,8 +72,11 @@ def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> 
             title = e.get('title', '')
             if not link or not title or not is_market_news(title):
                 continue
+            pub = parse_date(e)
+            # ── 1-hour filter ──────────────────────────────────────────────
+            if not is_recent(pub):
+                continue
             symbol = extract_symbol(title)
-            pub    = parse_date(e)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -88,6 +93,8 @@ def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> 
     except Exception as ex:
         print(f"  Google News ({query}): {ex}")
     return articles
+
+# ── NSE/BSE filings: NO 1-hour filter — official filings always saved ─────────
 
 def fetch_nse_announcements() -> list:
     articles = []
@@ -184,6 +191,7 @@ def run() -> int:
     articles = []
     seen_urls = set()
     live_feeds = 0
+    skipped_old = 0
 
     for source_name, url in SOURCES:
         entries = fetch_rss(url, source_name)
@@ -198,9 +206,13 @@ def run() -> int:
             combined = title + ' ' + summary
             if not is_impact_article(combined):
                 continue
+            pub = parse_date(e)
+            # ── 1-hour filter ──────────────────────────────────────────────
+            if not is_recent(pub):
+                skipped_old += 1
+                continue
             seen_urls.add(link)
             symbol = extract_symbol(combined)
-            pub    = parse_date(e)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -215,12 +227,13 @@ def run() -> int:
                 'tag_after_hours': 1,
             })
 
-    print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} live, {len(articles)} impact articles")
+    print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} live, {len(articles)} recent articles ({skipped_old} skipped)")
 
+    # Official filings — NO time filter
     nse = fetch_nse_announcements()
     bse = fetch_bse_announcements()
     articles += nse + bse
-    print(f"  📡 NSE: {len(nse)} | BSE: {len(bse)} announcements")
+    print(f"  📡 NSE: {len(nse)} | BSE: {len(bse)} announcements (no time filter)")
 
     for q in ["NSE BSE earnings results quarterly", "India stock market after hours results", "Indian company quarterly profit revenue"]:
         articles += fetch_google_news(q, "C", "news")

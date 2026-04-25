@@ -2,6 +2,9 @@
 agentD.py — Official Company Statements
 Sources: BSE corporate filings, NSE corporate filings, MCA, SEC Edgar (8-K, 20-F)
 These are tagged as 'official' — highest reliability.
+
+NOTE: NO 1-hour filter here. Official regulatory filings are always saved
+regardless of when they were published.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -11,7 +14,6 @@ from db_utils import save_articles
 from datetime import datetime, timedelta
 import requests, time
 
-# SEC Edgar RSS for major US companies (8-K = material events)
 SEC_TICKERS = {
     "AAPL":  "0000320193",
     "MSFT":  "0000789019",
@@ -31,10 +33,8 @@ BSE_CATEGORIES = [
 ]
 
 def fetch_sec_edgar(symbol: str, cik: str) -> list:
-    """Fetch latest 8-K filings from SEC Edgar Atom feed for a company."""
     articles = []
     try:
-        # ✅ FIX: rss_url was previously undefined — now correctly built
         rss_url = (
             f"https://www.sec.gov/cgi-bin/browse-edgar"
             f"?action=getcompany&CIK={cik}&type=8-K"
@@ -65,7 +65,6 @@ def fetch_sec_edgar(symbol: str, cik: str) -> list:
     return articles
 
 def fetch_bse_category(cat_name: str, cat_code: str) -> list:
-    """Fetch BSE announcements by category."""
     articles = []
     try:
         today    = datetime.utcnow().strftime('%Y%m%d')
@@ -106,7 +105,6 @@ def fetch_bse_category(cat_name: str, cat_code: str) -> list:
     return articles
 
 def fetch_nse_filings() -> list:
-    """NSE corporate filings endpoint."""
     articles = []
     try:
         session = requests.Session()
@@ -142,7 +140,7 @@ def fetch_nse_filings() -> list:
     return articles
 
 def run() -> int:
-    print("📋 AgentD — Official Company Statements")
+    print("📋 AgentD — Official Company Statements (no time filter)")
     articles = []
 
     for cat_name, cat_code in BSE_CATEGORIES:
@@ -157,7 +155,7 @@ def run() -> int:
     for symbol, cik in SEC_TICKERS.items():
         batch = fetch_sec_edgar(symbol, cik)
         articles += batch
-        time.sleep(0.3)   # be gentle with SEC
+        time.sleep(0.3)
     print(f"  📋 SEC Edgar: fetched for {len(SEC_TICKERS)} companies")
 
     saved = save_articles(articles)
