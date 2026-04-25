@@ -11,7 +11,7 @@ const SENTIMENT = {
 const PLACEHOLDER  = 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&q=80';
 const API          = 'https://gramblefinal-production.up.railway.app/api/news';
 const SEARCH_API   = 'https://gramblefinal-production.up.railway.app/api/search';
-const PAGE_SIZE    = 50;
+const PAGE_SIZE    = 200;
 const AUTO_REFRESH = 60 * 1000; // 60s
 
 const EXCHANGE_TABS = [
@@ -237,6 +237,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   const refreshTimer = useRef(null);
   const latestDate   = useRef(null);
   const loaderRef    = useRef(null);
+  const scrollRef    = useRef(null); // ← NEW: mobile scroll container ref
   const isMobile     = useIsMobile();
 
   const isStock    = view?.type === 'stock';
@@ -329,13 +330,17 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     setLoadingMore(false);
   }, [loadingMore, hasMore, isStock, page, buildUrl, isExchange]);
 
-  // Intersection observer
+  // ── Intersection observer — uses scrollRef as root on mobile ─────────────
   useEffect(() => {
     if (!loaderRef.current) return;
-    const obs = new IntersectionObserver(entries => { if (entries[0].isIntersecting) loadMore(); }, { threshold:0.1 });
+    const root = isMobile ? scrollRef.current : null;
+    const obs = new IntersectionObserver(
+      entries => { if (entries[0].isIntersecting) loadMore(); },
+      { threshold: 0.1, root }
+    );
     obs.observe(loaderRef.current);
     return () => obs.disconnect();
-  }, [loadMore]);
+  }, [loadMore, isMobile]);
 
   // ── Polling (for stock with no articles yet) ───────────────────────────────
   const stopPolling = () => { if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; } };
@@ -432,7 +437,8 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
             {EXCHANGE_TABS.map(ex => <button key={ex.key} onClick={()=>setExchangeTab(ex.key)} style={{ padding:'6px 16px', borderRadius:20, fontSize:12, fontWeight:700, border:'none', background: exchangeTab===ex.key?ex.color:'#f3f4f6', color: exchangeTab===ex.key?'#fff':'#374151', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>{ex.label}</button>)}
           </div>
         )}
-        <div style={{ flex:1, overflowY:'auto', padding:'12px' }}>
+        {/* ← scrollRef added here */}
+        <div ref={scrollRef} style={{ flex:1, overflowY:'auto', padding:'12px' }}>
           {newPillCount > 0 && <NewArticlesPill count={newPillCount} onClick={loadNewArticles} />}
           {showFetching && <FetchingScreen symbol={view.symbol} />}
           {loading && !isStock && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:80, gap:12 }}><Spinner /><div style={{ fontSize:13, color:'#9ca3af' }}>Loading news...</div></div>}
