@@ -10,7 +10,7 @@ import sys, os, re, time, argparse
 sys.path.insert(0, os.path.dirname(__file__))
 
 import urllib.parse
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, COMPANY_MAP
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_recent, COMPANY_MAP
 from db_utils import save_articles, get_conn
 
 COMPANY_PATTERN = re.compile(
@@ -105,6 +105,7 @@ def get_all_watchlist_symbols() -> list:
 def fetch_news_for_symbol(symbol: str) -> list:
     articles  = []
     seen_urls = set()
+    skipped   = 0
 
     name  = SYMBOL_TO_NAME.get(symbol, symbol)
     query = f"{name} stock NSE BSE earnings results"
@@ -119,8 +120,12 @@ def fetch_news_for_symbol(symbol: str) -> list:
             title = e.get('title', '')
             if not link or not title or link in seen_urls:
                 continue
-            seen_urls.add(link)
             pub = parse_date(e)
+            # ── 1-hour filter ──────────────────────────────────────────────
+            if not is_recent(pub):
+                skipped += 1
+                continue
+            seen_urls.add(link)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -147,8 +152,12 @@ def fetch_news_for_symbol(symbol: str) -> list:
             title = e.get('title', '')
             if not link or not title or link in seen_urls:
                 continue
-            seen_urls.add(link)
             pub = parse_date(e)
+            # ── 1-hour filter ──────────────────────────────────────────────
+            if not is_recent(pub):
+                skipped += 1
+                continue
+            seen_urls.add(link)
             articles.append({
                 'symbol':          symbol,
                 'title':           title,
@@ -165,11 +174,11 @@ def fetch_news_for_symbol(symbol: str) -> list:
     except Exception:
         pass
 
-    return articles
+    return articles, skipped
 
 
 def mark_ready(symbol: str):
-    """Mark only articles that have a summary as ready — never show unfinished articles."""
+    """Mark only articles that have a summary as ready."""
     try:
         conn = get_conn()
         cur  = conn.cursor()
@@ -205,14 +214,17 @@ def run(symbol: str = None) -> int:
         return 0
 
     all_articles = []
+    total_skipped = 0
+
     for sym in symbols:
-        arts = fetch_news_for_symbol(sym)
+        arts, skipped = fetch_news_for_symbol(sym)
         all_articles += arts
-        print(f"  📡 {sym}: {len(arts)} articles")
+        total_skipped += skipped
+        print(f"  📡 {sym}: {len(arts)} recent articles ({skipped} skipped — older than 1hr)")
         time.sleep(0.3)
 
     saved = save_articles(all_articles)
-    print(f"  ✅ AgentWatchlist done — {len(all_articles)} total, {saved} new saved\n")
+    print(f"  ✅ AgentWatchlist done — {len(all_articles)} fetched, {saved} new saved, {total_skipped} skipped old\n")
     return saved
 
 
