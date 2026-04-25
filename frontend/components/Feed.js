@@ -12,7 +12,7 @@ const PLACEHOLDER  = 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236
 const API          = 'https://gramblefinal-production.up.railway.app/api/news';
 const SEARCH_API   = 'https://gramblefinal-production.up.railway.app/api/search';
 const PAGE_SIZE    = 50;
-const AUTO_REFRESH = 60 * 1000; // 60s
+const AUTO_REFRESH = 60 * 1000;
 
 const EXCHANGE_TABS = [
   { key:'NSE',    label:'NSE',    color:'#7c3aed' },
@@ -26,8 +26,9 @@ const EXCHANGE_SOURCES = {
   NASDAQ: ['nasdaq','techcrunch','the verge','wired','reuters','bloomberg','cnbc','marketwatch'],
   NYSE:   ['nyse','wall street','wsj','ap news','financial times','seeking alpha','yahoo finance'],
 };
+
+// Only filter truly bad content — NOT by source
 const BAD_KEYWORDS = ['wrestlemania','wwe','cricket','ipl','bollywood','celebrity'];
-const ALL_EXCHANGE_SOURCES = Object.values(EXCHANGE_SOURCES).flat();
 
 function isHindi(text) {
   if (!text) return false;
@@ -48,12 +49,13 @@ function timeAgo(dateStr) {
   if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
   return `${Math.floor(diff/86400)}d ago`;
 }
+
+// FIX: filterGlobal now only removes junk content, NOT legitimate news sources
 function filterGlobal(data) {
   return data.filter(a => {
-    const src = [(a.source||''),(a.tag_source_name||''),(a.agent_source||'')].join(' ').toLowerCase();
-    return !ALL_EXCHANGE_SOURCES.some(s => src.includes(s))
-      && !isHindi(a.title)
-      && !BAD_KEYWORDS.some(k => (a.title||'').toLowerCase().includes(k));
+    if (isHindi(a.title)) return false;
+    if (BAD_KEYWORDS.some(k => (a.title||'').toLowerCase().includes(k))) return false;
+    return true;
   });
 }
 
@@ -68,7 +70,6 @@ function useIsMobile() {
   return m;
 }
 
-// ── URL hash helpers ───────────────────────────────────────────────────────────
 function viewToHash(view) {
   if (!view || view === 'feed') return '';
   if (view?.type === 'stock') return view.symbol;
