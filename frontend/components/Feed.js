@@ -372,14 +372,18 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     const timer = setTimeout(async () => {
       if (isStock) {
         const sym = view.symbol;
-        fetch(`${SEARCH_API}/news?symbol=${sym}`).catch(()=>{});
         const d = await fetch(`${API}?limit=100&symbol=${sym}`).catch(()=>({json:()=>({data:[]})}));
         const data = (await d.json()).data || [];
         setArticles(data);
         latestDate.current = data[0]?.published_at || null;
         setLoading(false);
-        if (!data.length) { setFetching(true); startPolling(sym); }
-        else startRefresh(view);
+        if (!data.length) {
+          fetch(`${SEARCH_API}/news?symbol=${sym}`).catch(()=>{});
+          setFetching(true);
+          startPolling(sym);
+        } else {
+          startRefresh(view);
+        }
       } else {
         const d = await fetch(buildUrl(1)).catch(()=>({json:()=>({data:[],pagination:{hasMore:false}})}));
         const json = await d.json();
