@@ -1,10 +1,10 @@
 """
-agentBacklog.py — Parallel Backlog Processor (FIXED v6)
+agentBacklog.py — Parallel Backlog Processor (v7)
 
-Changes from v5:
-- scrape_article() now returns both text AND og:image
-- Pexels fallback image when no og:image found
-- Saves image_url to DB during processing
+Changes from v6:
+- Smart image resolution: symbol-based Pexels query
+- Logo blacklist — skips yahoo/google/bing/reuters logos
+- og:image only used if it looks like a real photo
 """
 import sys, os, time, json, threading, re, unicodedata
 sys.path.insert(0, os.path.dirname(__file__))
@@ -14,10 +14,10 @@ from groq_pool import MAIN_POOL, GroqKeyPool
 import requests
 import psycopg2.extras
 
-GROQ_URL      = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL    = "llama-3.1-8b-instant"
-PEXELS_KEY    = os.environ.get("PEXELS_API_KEY", "")
-PEXELS_URL    = "https://api.pexels.com/v1/search"
+GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.1-8b-instant"
+PEXELS_KEY = os.environ.get("PEXELS_API_KEY", "")
+PEXELS_URL = "https://api.pexels.com/v1/search"
 
 SCRAPE_HEADERS = {
     "User-Agent": (
@@ -25,6 +25,70 @@ SCRAPE_HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36"
     )
+}
+
+# Words in og:image URLs that indicate a logo/brand image — skip these
+LOGO_BLACKLIST = [
+    'logo', 'icon', 'brand', 'favicon', 'avatar', 'placeholder',
+    'yahoo', 'google', 'bing', 'reuters', 'bloomberg', 'moneycontrol',
+    'economictimes', 'ndtv', 'livemint', 'businessstandard', 'cnbc',
+    'marketwatch', 'seekingalpha', 'default', 'fallback', 'no-image',
+    'noimage', 'blank', 'header', 'banner-logo', 'site-logo',
+]
+
+# Symbol → readable Pexels search query
+SYMBOL_MAP = {
+    "AAPL":           "Apple technology iPhone",
+    "NVDA":           "Nvidia GPU chip AI",
+    "GOOGL":          "Google office technology",
+    "META":           "Meta Facebook social media",
+    "AMZN":           "Amazon warehouse delivery",
+    "MSFT":           "Microsoft office software",
+    "TSLA":           "Tesla electric car",
+    "INTC":           "Intel semiconductor chip",
+    "AMD":            "AMD processor chip",
+    "NFLX":           "Netflix streaming",
+    "UBER":           "Uber ride sharing",
+    "COIN":           "Coinbase cryptocurrency bitcoin",
+    "PLTR":           "Palantir data analytics",
+    "SHOP":           "Shopify ecommerce",
+    "JPM":            "JPMorgan bank Wall Street",
+    "BAC":            "Bank of America finance",
+    "GS":             "Goldman Sachs finance",
+    "INFY":           "Infosys India office technology",
+    "TCS":            "Tata Consultancy Services India",
+    "HDFCBANK":       "HDFC Bank India finance",
+    "ICICIBANK":      "ICICI Bank India",
+    "SBIN":           "State Bank of India",
+    "RELIANCE":       "Reliance Industries India",
+    "WIPRO":          "Wipro India technology",
+    "ITC":            "ITC India consumer goods",
+    "INDUSINDBK.NS":  "IndusInd Bank India",
+    "COCHINSHIP.BO":  "Cochin Shipyard India ship",
+    "ADANIENT":       "Adani Enterprises India",
+    "TATAMOTORS":     "Tata Motors car India",
+    "BAJFINANCE":     "Bajaj Finance India",
+    "HINDUNILVR":     "Hindustan Unilever India",
+    "KOTAKBANK":      "Kotak Mahindra Bank India",
+    "AXISBANK":       "Axis Bank India",
+    "MARUTI":         "Maruti Suzuki car India",
+    "SUNPHARMA":      "Sun Pharma medicine India",
+    "NTPC":           "NTPC power plant India",
+    "ONGC":           "ONGC oil India",
+    "TATASTEEL":      "Tata Steel industry",
+    "JSWSTEEL":       "JSW Steel industry",
+    "TITAN":          "Titan watches jewelry India",
+    "NESTLEIND":      "Nestle food India",
+    "HCLTECH":        "HCL Technologies India",
+    "TECHM":          "Tech Mahindra India",
+    "ZOMATO":         "Zomato food delivery India",
+    "PAYTM":          "Paytm digital payment India",
+    "NYKAA":          "Nykaa beauty India",
+    "INDIGO":         "IndiGo airline India",
+    "IRCTC":          "IRCTC Indian railway",
+    "DRREDDY":        "Dr Reddys pharmacy India",
+    "CIPLA":          "Cipla medicine India",
+    "APOLLOHOSP":     "Apollo Hospital India",
 }
 
 
@@ -44,7 +108,6 @@ def sanitize(text: str) -> str:
 # ── Scrape article: returns text + og:image ───────────────────────────────────
 
 def scrape_article(url: str) -> dict:
-    """Scrape article URL — returns {text, image}"""
     if not url:
         return {"text": "", "image": None}
     try:
@@ -54,7 +117,7 @@ def scrape_article(url: str) -> dict:
 
         html = r.text
 
-        # ── grab og:image (two attribute orders) ──────────────────────────
+        # grab og:image
         image = None
         og = re.search(
             r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](https?://[^"\']+)["\']',
@@ -66,7 +129,6 @@ def scrape_article(url: str) -> dict:
                 html, re.IGNORECASE
             )
         if not og:
-            # twitter:image fallback
             og = re.search(
                 r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\'](https?://[^"\']+)["\']',
                 html, re.IGNORECASE
@@ -74,7 +136,7 @@ def scrape_article(url: str) -> dict:
         if og:
             image = og.group(1).strip()
 
-        # ── strip html for text ───────────────────────────────────────────
+        # strip html for text
         text = re.sub(r'<script[^>]*>.*?</script>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<style[^>]*>.*?</style>',   ' ', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<[^>]+>', ' ', text)
@@ -86,28 +148,29 @@ def scrape_article(url: str) -> dict:
         return {"text": "", "image": None}
 
 
-# ── Pexels fallback image ─────────────────────────────────────────────────────
+# ── Image helpers ─────────────────────────────────────────────────────────────
+
+def is_real_image(url: str) -> bool:
+    """Returns False if the URL looks like a logo/brand/placeholder."""
+    if not url:
+        return False
+    url_lower = url.lower()
+    return not any(word in url_lower for word in LOGO_BLACKLIST)
+
 
 def get_pexels_image(query: str) -> str | None:
-    """Search Pexels for a relevant image. Returns URL or None."""
-    if not PEXELS_KEY:
+    """Search Pexels. Returns landscape image URL or None."""
+    if not PEXELS_KEY or not query:
         return None
     try:
-        # clean query — keep first 5 words, strip special chars
-        clean = re.sub(r'[^a-zA-Z0-9 ]', '', query)
-        clean = ' '.join(clean.split()[:5])
-        if not clean:
-            return None
-
         r = requests.get(
             PEXELS_URL,
             headers={"Authorization": PEXELS_KEY},
-            params={"query": clean, "per_page": 1, "orientation": "landscape"},
+            params={"query": query, "per_page": 1, "orientation": "landscape"},
             timeout=8,
         )
         if r.status_code != 200:
             return None
-
         photos = r.json().get("photos", [])
         if photos:
             return photos[0]["src"]["large"]
@@ -116,25 +179,28 @@ def get_pexels_image(query: str) -> str | None:
         return None
 
 
-# ── Resolve image for an article ─────────────────────────────────────────────
-
 def resolve_image(article: dict, scraped_image: str | None) -> str | None:
     """
     Priority:
-    1. Already has image_url in DB → keep it
-    2. og:image from scrape → use it
-    3. Pexels search on title → use it
-    4. None → frontend will use placeholder
+    1. Already has image_url in DB → skip (return None = no update)
+    2. og:image looks like a real photo → use it
+    3. Pexels with symbol/company name → use it
+    4. None → frontend placeholder
     """
     if article.get("image_url"):
         return None  # already set, no update needed
 
-    if scraped_image:
+    # og:image only if it's a real photo not a logo
+    if scraped_image and is_real_image(scraped_image):
         return scraped_image
 
-    # Pexels fallback using title
-    title = article.get("title", "") or ""
-    return get_pexels_image(title)
+    # Pexels — use symbol map first, fall back to raw symbol
+    symbol = (article.get("symbol") or "").upper().strip()
+    pexels_query = SYMBOL_MAP.get(
+        symbol,
+        f"{symbol} stock market finance" if symbol else "stock market finance"
+    )
+    return get_pexels_image(pexels_query)
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -154,6 +220,7 @@ class ArticleQueue:
 
 
 _db_lock = threading.Lock()
+
 
 def save_result(result: dict):
     with _db_lock:
@@ -274,7 +341,7 @@ def process_one(key: str, article: dict, agent_id: int):
             except Exception:
                 pass
 
-    # resolve image (og:image → pexels → None)
+    # resolve image
     image_url = resolve_image(article, scraped_image)
     if image_url:
         print(f"  🖼  Agent {agent_id}: image resolved for article {article['id']}")
@@ -337,7 +404,7 @@ CRITICAL RULES:
                 "sentiment_label":  label,
                 "sentiment_reason": reason,
                 "summary_60w":      summary,
-                "image_url":        image_url,  # None if already set or not found
+                "image_url":        image_url,
             }
         else:
             print(f"  ❌ Agent {agent_id}: no JSON in response for article {article['id']}")
@@ -388,7 +455,7 @@ def get_backlog(symbol: str = None, limit: int = 100) -> list:
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     if symbol:
         cur.execute("""
-            SELECT id, title, full_text, url, image_url FROM articles
+            SELECT id, title, full_text, url, image_url, symbol FROM articles
             WHERE (summary_60w IS NULL OR summary_60w = '')
             AND (is_duplicate IS NULL OR is_duplicate = false)
             AND created_at > NOW() - INTERVAL '6 days'
@@ -397,7 +464,7 @@ def get_backlog(symbol: str = None, limit: int = 100) -> list:
         """, (symbol, limit))
     else:
         cur.execute("""
-            SELECT id, title, full_text, url, image_url FROM articles
+            SELECT id, title, full_text, url, image_url, symbol FROM articles
             WHERE (summary_60w IS NULL OR summary_60w = '')
             AND (is_duplicate IS NULL OR is_duplicate = false)
             AND created_at > NOW() - INTERVAL '6 days'
@@ -422,7 +489,7 @@ def run(pool: GroqKeyPool = MAIN_POOL, symbol: str = None, limit: int = 100) -> 
         print("  ✅ AgentBacklog — No backlog!")
         return 0
 
-    n_agents = len(keys)
+    n_agents  = len(keys)
     pool_name = "SEARCH" if pool is not MAIN_POOL else "MAIN"
     print(f"📦 AgentBacklog — {len(articles)} articles | {n_agents} sub-agents | pool={pool_name}")
 
