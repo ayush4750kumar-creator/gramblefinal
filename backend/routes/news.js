@@ -5,12 +5,19 @@ const { pool } = require('../config/database');
 router.get('/', async (req, res) => {
   try {
     const page      = parseInt(req.query.page)  || 1;
-    const limit     = parseInt(req.query.limit) || 1200;
+    const limit     = Math.min(parseInt(req.query.limit) || 50, 200); // cap at 200
     const symbol    = req.query.symbol    || null;
     const sentiment = req.query.sentiment || null;
     const category  = req.query.category  || null;
     const feed      = req.query.feed      || null;
     const offset    = (page - 1) * limit;
+
+    // Cache global feed on Vercel CDN for 60s; private for filtered queries
+    if (!symbol && !sentiment && !category && !feed) {
+      res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+    } else {
+      res.setHeader('Cache-Control', 'private, no-cache');
+    }
 
     const params = [];
     let p = 1;
@@ -24,8 +31,17 @@ router.get('/', async (req, res) => {
     if (category)  { where += ` AND a.tag_category = $${p++}`;     params.push(category); }
     if (feed)      { where += ` AND a.tag_feed = $${p++}`;         params.push(feed); }
 
-    // DISTINCT ON normalised title — deduplicates same story from multiple sources
-    // Wrapped in subquery so we can re-order by date after dedup
+    // Count total unique articles for pagination
+    const countResult = await pool.query(`
+      SELECT COUNT(*) as count FROM (
+        SELECT DISTINCT ON (lower(regexp_replace(a.title, '[^a-zA-Z0-9 ]', '', 'g')))
+          id FROM articles a ${where}
+        ORDER BY lower(regexp_replace(a.title, '[^a-zA-Z0-9 ]', '', 'g')), a.published_at DESC
+      ) counted
+    `, params);
+    const total = parseInt(countResult.rows[0]?.count || 0);
+
+    // Fetch page with DB-level LIMIT/OFFSET
     const result = await pool.query(`
       SELECT * FROM (
         SELECT DISTINCT ON (lower(regexp_replace(a.title, '[^a-zA-Z0-9 ]', '', 'g')))
@@ -39,15 +55,12 @@ router.get('/', async (req, res) => {
                  a.published_at DESC
       ) deduped
       ORDER BY published_at DESC
-    `, params);
-
-    // Slice manually for pagination (DISTINCT ON can't use LIMIT/OFFSET directly)
-    const total = result.rows.length;
-    const paginated = result.rows.slice(offset, offset + limit);
+      LIMIT $${p++} OFFSET $${p++}
+    `, [...params, limit, offset]);
 
     res.json({
       success: true,
-      data: paginated,
+      data: result.rows,
       pagination: { page, limit, total, hasMore: offset + limit < total }
     });
   } catch (err) {
