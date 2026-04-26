@@ -84,7 +84,7 @@ def run_for_symbol(symbol: str):
                 print(f"  ✅ Deep fetch complete — {symbol} marked, won't deep fetch again")
             else:
                 # Already done before — normal 1hr fetch only
-                fetched = agentWatchlist.run(symbol=symbol)
+                fetched = agentWatchlist.run(symbol=symbol, days=3)
             # ─────────────────────────────────────────────────────────────────
 
             print(f"  ⏱  Watchlist fetch:    {time.time()-t:.1f}s  ({fetched} new articles)")
