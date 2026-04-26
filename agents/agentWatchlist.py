@@ -121,7 +121,7 @@ def fetch_news_for_symbol(symbol: str, days: int = None) -> tuple:
         q   = urllib.parse.quote(query)
         url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
         entries = fetch_rss(url, f"GNews/{symbol}", timeout=6)
-        for e in entries[:6]:
+        for e in entries[:15]:
             link  = e.get('link', '')
             title = e.get('title', '')
             if not link or not title or link in seen_urls:
@@ -152,7 +152,7 @@ def fetch_news_for_symbol(symbol: str, days: int = None) -> tuple:
         q   = urllib.parse.quote(f"{name} stock")
         url = f"https://www.bing.com/news/search?q={q}&format=rss"
         entries = fetch_rss(url, f"Bing/{symbol}", timeout=6)
-        for e in entries[:4]:
+        for e in entries[:10]:
             link  = e.get('link', '')
             title = e.get('title', '')
             if not link or not title or link in seen_urls:

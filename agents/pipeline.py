@@ -98,7 +98,7 @@ def run_for_symbol(symbol: str):
             print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
 
             t = time.time()
-            backlog_done = agentBacklog.run(pool=SEARCH_POOL, symbol=symbol, limit=5)
+            backlog_done = agentBacklog.run(pool=SEARCH_POOL, symbol=symbol, limit=50)
             print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
 
             from agentWatchlist import mark_ready
