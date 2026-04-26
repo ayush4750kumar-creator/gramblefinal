@@ -1,13 +1,13 @@
 """
 agentA.py — After-Market Company News
-Runs after 15:30 IST. Fetches company-specific news from Indian financial media.
-Sources: MoneyControl, Economic Times Markets, LiveMint, Business Standard, Yahoo Finance per-stock
+Sources: MoneyControl, ET Markets, LiveMint, Business Standard, Yahoo Finance + 4 News APIs
 """
 import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
 from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, COMPANY_MAP, HEADERS, is_financial
 from db_utils import save_articles
+from news_apis import fetch_all_apis
 from datetime import datetime
 import requests, time
 
@@ -42,7 +42,6 @@ def fetch_yahoo_per_stock(symbols: list) -> list:
             entries = fetch_rss(url, f"Yahoo/{sym}", timeout=6)
             for e in entries[:10]:
                 pub = parse_date(e)
-                # ── 1-hour filter ──────────────────────────────────────────
                 if not is_recent(pub):
                     continue
                 link = e.get('link', '')
@@ -82,7 +81,6 @@ def run() -> int:
             if not link or link in seen_urls:
                 continue
             pub = parse_date(e)
-            # ── 1-hour filter ──────────────────────────────────────────────
             if not is_recent(pub):
                 skipped_old += 1
                 continue
@@ -104,11 +102,20 @@ def run() -> int:
                 'tag_after_hours': is_after_hours(pub),
             })
 
-    print(f"  📡 RSS: {len(articles)} recent articles from {live_feeds}/{len(SOURCES)} feeds ({skipped_old} skipped — older than 1hr)")
+    print(f"  📡 RSS: {len(articles)} recent articles from {live_feeds}/{len(SOURCES)} feeds ({skipped_old} skipped)")
 
     yahoo_arts = fetch_yahoo_per_stock(list(COMPANY_MAP.keys()))
     articles += yahoo_arts
     print(f"  📡 Yahoo per-stock: {len(yahoo_arts)} recent articles")
+
+    # ── 4 News APIs ───────────────────────────────────────────────────────────
+    api_arts = fetch_all_apis("India stock market company earnings results", agent_source="A")
+    new_api = [a for a in api_arts if a["url"] not in seen_urls]
+    for a in new_api:
+        seen_urls.add(a["url"])
+        a["tag_after_hours"] = 0
+    articles += new_api
+    print(f"  📡 News APIs: {len(new_api)} additional articles")
 
     saved = save_articles(articles)
     print(f"  ✅ AgentA done — {len(articles)} total, {saved} new saved\n")

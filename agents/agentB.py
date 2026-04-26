@@ -1,13 +1,13 @@
 """
 agentB.py — Pre-Market News & Analysis
-Runs before 9:15 IST. GIFT Nifty signals, global cues, pre-market wrap.
-Sources: MoneyControl pre-market, CNBC TV18, Investing.com, SGX/GIFT Nifty via yfinance
+Sources: ET, Investing.com, Google News + 4 News APIs
 """
 import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
 from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, is_financial
 from db_utils import save_articles
+from news_apis import fetch_all_apis
 from datetime import datetime
 import requests, time
 
@@ -54,7 +54,6 @@ def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> 
             if not link or not title or not is_market_news(title):
                 continue
             pub = parse_date(e)
-            # ── 1-hour filter ──────────────────────────────────────────────
             if not is_recent(pub):
                 continue
             symbol = extract_symbol(title)
@@ -76,7 +75,6 @@ def fetch_google_news(query: str, agent_source: str, category: str = 'news') -> 
     return articles
 
 def fetch_gift_nifty():
-    # GIFT Nifty is a synthetic article generated now — always recent, no filter needed
     articles = []
     try:
         import yfinance as yf
@@ -140,7 +138,6 @@ def run() -> int:
             if not link or link in seen_urls:
                 continue
             pub = parse_date(e)
-            # ── 1-hour filter ──────────────────────────────────────────────
             if not is_recent(pub):
                 skipped_old += 1
                 continue
@@ -166,10 +163,21 @@ def run() -> int:
 
     for q in ["Nifty Sensex pre-market open", "India stock market opening today", "SGX Nifty gift nifty today"]:
         articles += fetch_google_news(q, "B", "analysis")
+
     gift = fetch_gift_nifty()
     articles += gift
     if gift:
         print(f"  📡 GIFT/Index cues: {len(gift)} synthetic article(s)")
+
+    # ── 4 News APIs ───────────────────────────────────────────────────────────
+    api_arts = fetch_all_apis("India stock market pre-market Nifty Sensex global cues", agent_source="B")
+    new_api = [a for a in api_arts if a["url"] not in seen_urls]
+    for a in new_api:
+        seen_urls.add(a["url"])
+        a["tag_category"] = "analysis"
+        a["tag_after_hours"] = 1
+    articles += new_api
+    print(f"  📡 News APIs: {len(new_api)} additional articles")
 
     saved = save_articles(articles)
     print(f"  ✅ AgentB done — {len(articles)} total, {saved} new saved\n")

@@ -1,9 +1,6 @@
 """
 agentF.py — Official Exchange & Market News
-Sources: NSE India press, NYSE press, NASDAQ news, Wall Street Journal RSS, Financial Times RSS
-
-NOTE: NSE press releases and SEBI orders have NO time filter — always saved.
-RSS feeds use 1-hour filter.
+Sources: WSJ, FT, MarketWatch, NASDAQ, NSE Press, SEBI + 4 News APIs
 """
 from agentB import fetch_google_news
 import sys, os, re
@@ -11,6 +8,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, is_financial
 from db_utils import save_articles
+from news_apis import fetch_all_apis
 from datetime import datetime, timedelta
 import requests, time
 
@@ -30,15 +28,12 @@ COMPANY_PATTERN = re.compile(
     r'Telecom|Insurance|Securities|Investments|Retail|Foods|Consumer)\b'
 )
 
-def detect_feed(symbol: str, title: str) -> str:
-    if symbol and symbol.strip():
-        return 'company'
-    if title and COMPANY_PATTERN.search(title):
-        return 'company'
+def detect_feed(symbol, title):
+    if symbol and symbol.strip(): return 'company'
+    if title and COMPANY_PATTERN.search(title): return 'company'
     return 'global'
 
-def fetch_nse_press_releases() -> list:
-    """NSE press releases — NO time filter."""
+def fetch_nse_press_releases():
     articles = []
     try:
         session = requests.Session()
@@ -48,50 +43,37 @@ def fetch_nse_press_releases() -> list:
         resp = session.get(url, timeout=10)
         data = resp.json()
         for item in (data if isinstance(data, list) else [])[:30]:
-            title = item.get('title', '') or item.get('subject', '')
-            link  = item.get('link', '') or "https://www.nseindia.com/press-releases"
+            title = item.get('title','') or item.get('subject','')
+            link  = item.get('link','') or "https://www.nseindia.com/press-releases"
             pub   = str(item.get('date', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')))[:19]
             sym   = extract_symbol(title)
             articles.append({
-                'symbol':          sym,
-                'title':           f"[NSE Press] {title}",
-                'url':             link,
-                'source':          'NSE Press Release',
-                'tag_source_name': 'NSE India (Press)',
-                'published_at':    pub,
-                'full_text':       title,
-                'tag_feed':        detect_feed(sym, title),
-                'tag_category':    'official',
-                'agent_source':    'F',
-                'tag_after_hours': is_after_hours(pub),
+                'symbol': sym,'title': f"[NSE Press] {title}",'url': link,
+                'source': 'NSE Press Release','tag_source_name': 'NSE India (Press)',
+                'published_at': pub,'full_text': title,
+                'tag_feed': detect_feed(sym, title),'tag_category': 'official',
+                'agent_source': 'F','tag_after_hours': is_after_hours(pub),
             })
     except Exception as e:
         print(f"  ⚠  NSE press: {e}")
     return articles
 
-def fetch_sebi_orders() -> list:
-    """SEBI orders — NO time filter."""
+def fetch_sebi_orders():
     articles = []
     try:
         url     = "https://www.sebi.gov.in/sebi_data/attachdocs/rss.xml"
         entries = fetch_rss(url, "SEBI", timeout=8)
         for e in entries[:15]:
-            link  = e.get('link', '')
-            title = e.get('title', '')
+            link  = e.get('link','')
+            title = e.get('title','')
             pub   = parse_date(e)
             sym   = extract_symbol(title)
             articles.append({
-                'symbol':          sym,
-                'title':           f"[SEBI] {title}",
-                'url':             link,
-                'source':          'SEBI',
-                'tag_source_name': 'SEBI (Official)',
-                'published_at':    pub,
-                'full_text':       clean_html(e.get('summary', '')),
-                'tag_feed':        detect_feed(sym, title),
-                'tag_category':    'official',
-                'agent_source':    'F',
-                'tag_after_hours': is_after_hours(pub),
+                'symbol': sym,'title': f"[SEBI] {title}",'url': link,
+                'source': 'SEBI','tag_source_name': 'SEBI (Official)',
+                'published_at': pub,'full_text': clean_html(e.get('summary','')),
+                'tag_feed': detect_feed(sym, title),'tag_category': 'official',
+                'agent_source': 'F','tag_after_hours': is_after_hours(pub),
             })
     except Exception as e:
         print(f"  ⚠  SEBI: {e}")
@@ -99,49 +81,47 @@ def fetch_sebi_orders() -> list:
 
 def run() -> int:
     print("🏛️  AgentF — Official Exchange & Market News")
-    articles = []
+    articles  = []
     seen_urls = set()
-    live_feeds = 0
+    live_feeds  = 0
     skipped_old = 0
 
     for source_name, url, display_name in SOURCES:
         entries = fetch_rss(url, source_name)
-        if entries:
-            live_feeds += 1
+        if entries: live_feeds += 1
         for e in entries:
-            link = e.get('link', '')
-            if not link or link in seen_urls:
-                continue
+            link = e.get('link','')
+            if not link or link in seen_urls: continue
             pub = parse_date(e)
-            # ── 1-hour filter ──────────────────────────────────────────────
             if not is_recent(pub):
                 skipped_old += 1
                 continue
             seen_urls.add(link)
-            title   = e.get('title', '')
-            summary = clean_html(e.get('summary', '') or e.get('description', ''))
+            title   = e.get('title','')
+            summary = clean_html(e.get('summary','') or e.get('description',''))
             symbol  = extract_symbol(title + ' ' + summary)
             articles.append({
-                'symbol':          symbol,
-                'title':           title,
-                'url':             link,
-                'source':          source_name,
-                'tag_source_name': display_name,
-                'published_at':    pub,
-                'full_text':       summary,
-                'tag_feed':        detect_feed(symbol, title),
-                'tag_category':    'news',
-                'agent_source':    'F',
-                'tag_after_hours': is_after_hours(pub),
+                'symbol': symbol,'title': title,'url': link,
+                'source': source_name,'tag_source_name': display_name,
+                'published_at': pub,'full_text': summary,
+                'tag_feed': detect_feed(symbol, title),'tag_category': 'news',
+                'agent_source': 'F','tag_after_hours': is_after_hours(pub),
             })
 
     print(f"  📡 RSS: {live_feeds}/{len(SOURCES)} live, {len(articles)} recent articles ({skipped_old} skipped)")
 
-    # Official sources — no time filter
     nse  = fetch_nse_press_releases()
     sebi = fetch_sebi_orders()
     articles += nse + sebi
     print(f"  📡 NSE Press: {len(nse)} | SEBI: {len(sebi)} (no time filter)")
+
+    # ── 4 News APIs ───────────────────────────────────────────────────────────
+    api_arts = fetch_all_apis("NASDAQ NYSE Wall Street stock market exchange finance", agent_source="F")
+    new_api  = [a for a in api_arts if a["url"] not in seen_urls]
+    for a in new_api:
+        seen_urls.add(a["url"])
+    articles += new_api
+    print(f"  📡 News APIs: {len(new_api)} additional articles")
 
     saved = save_articles(articles)
     print(f"  ✅ AgentF done — {len(articles)} total, {saved} new saved\n")

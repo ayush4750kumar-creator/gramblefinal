@@ -3,8 +3,7 @@ agentWatchlist.py — Watchlist News Fetcher
 Runs after agentX in the pipeline. Fetches news for ALL unique symbols
 across ALL users' watchlists.
 
-Can also be triggered for a single symbol:
-  python3 agentWatchlist.py --symbol RELIANCE
+Sources: Google News RSS + Bing RSS + Marketaux + GNews + NewsData + Currents
 """
 import sys, os, re, time, argparse
 sys.path.insert(0, os.path.dirname(__file__))
@@ -12,6 +11,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import urllib.parse
 from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_recent, COMPANY_MAP
 from db_utils import save_articles, get_conn
+from news_apis import fetch_apis_for_symbol
 
 COMPANY_PATTERN = re.compile(
     r'\b[A-Z][a-zA-Z]{1,20}\s+(Ltd|Limited|Inc|Corp|Industries|Enterprises|'
@@ -102,16 +102,12 @@ def get_all_watchlist_symbols() -> list:
         return []
 
 
-def fetch_news_for_symbol(symbol: str, days: int = None) -> tuple:
-    """
-    Fetch news for a symbol.
-    days=None  → normal 1-hour filter
-    days=20    → deep fetch, 20-day window (first-time only)
-    """
+def fetch_rss_for_symbol(symbol: str, days: int = None) -> tuple:
+    """Google News + Bing RSS fetch (original sources, unchanged)."""
     articles  = []
     seen_urls = set()
     skipped   = 0
-    hours_limit = (days * 24) if days else 1  # deep=480hrs, normal=1hr
+    hours_limit = (days * 24) if days else 1
 
     name  = SYMBOL_TO_NAME.get(symbol, symbol)
     query = f"{name} stock NSE BSE earnings results"
@@ -121,7 +117,7 @@ def fetch_news_for_symbol(symbol: str, days: int = None) -> tuple:
         q   = urllib.parse.quote(query)
         url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
         entries = fetch_rss(url, f"GNews/{symbol}", timeout=6)
-        for e in entries[:15]:
+        for e in entries[:15]:  # increased from 6 → 15
             link  = e.get('link', '')
             title = e.get('title', '')
             if not link or not title or link in seen_urls:
@@ -152,7 +148,7 @@ def fetch_news_for_symbol(symbol: str, days: int = None) -> tuple:
         q   = urllib.parse.quote(f"{name} stock")
         url = f"https://www.bing.com/news/search?q={q}&format=rss"
         entries = fetch_rss(url, f"Bing/{symbol}", timeout=6)
-        for e in entries[:10]:
+        for e in entries[:10]:  # increased from 4 → 10
             link  = e.get('link', '')
             title = e.get('title', '')
             if not link or not title or link in seen_urls:
@@ -177,6 +173,29 @@ def fetch_news_for_symbol(symbol: str, days: int = None) -> tuple:
             })
     except Exception:
         pass
+
+    return articles, skipped, seen_urls
+
+
+def fetch_news_for_symbol(symbol: str, days: int = None) -> tuple:
+    """
+    Fetch news from ALL sources: RSS (Google+Bing) + 4 news APIs.
+    days=None  → normal 1-hour filter (RSS only, APIs always return fresh)
+    days=20    → deep fetch 20-day window
+    """
+    # Step 1: RSS sources (original)
+    articles, skipped, seen_urls = fetch_rss_for_symbol(symbol, days)
+
+    # Step 2: 4 news APIs (always run, they return recent news by default)
+    company_name = SYMBOL_TO_NAME.get(symbol, "")
+    api_articles = fetch_apis_for_symbol(symbol, company_name, agent_source="WATCHLIST")
+
+    # deduplicate API results against RSS
+    for a in api_articles:
+        if a["url"] not in seen_urls:
+            seen_urls.add(a["url"])
+            a["symbol"] = symbol  # ensure symbol is set
+            articles.append(a)
 
     return articles, skipped
 
@@ -206,13 +225,6 @@ def mark_ready(symbol: str):
 
 
 def run(symbol: str = None, days: int = None) -> int:
-    """
-    Run the watchlist fetcher.
-    symbol=None  → fetch for all watchlist symbols
-    symbol='X'   → fetch for one symbol only
-    days=20      → deep fetch window (20 days), used for first-time symbols
-    days=None    → normal 1-hour window
-    """
     if symbol:
         symbols = [symbol.upper()]
         mode = f"deep ({days}d)" if days else "normal (1hr)"
@@ -233,7 +245,7 @@ def run(symbol: str = None, days: int = None) -> int:
         all_articles  += arts
         total_skipped += skipped
         label = f"older than {days}d" if days else "older than 1hr"
-        print(f"  📡 {sym}: {len(arts)} recent articles ({skipped} skipped — {label})")
+        print(f"  📡 {sym}: {len(arts)} articles ({skipped} RSS skipped — {label})")
         time.sleep(0.3)
 
     saved = save_articles(all_articles)
