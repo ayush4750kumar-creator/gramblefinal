@@ -11,6 +11,19 @@ _GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
 _GROQ_MODEL = "llama-3.1-8b-instant"
 _last_call  = 0
 
+SYSTEM_PROMPT = (
+    "You are a financial news summariser. Your only job is to compress an article "
+    "into the key facts it actually states. "
+    "STRICT RULES — violating any of these is failure:\n"
+    "1. Only include facts explicitly stated in the article.\n"
+    "2. NEVER write predictions, forecasts, or market impact — not even hedged ones.\n"
+    "3. NEVER use: 'expected to', 'may', 'could', 'likely', 'might', 'would boost', "
+    "'investors optimistic', 'positive impact', 'negative impact', or any similar phrase.\n"
+    "4. NEVER add a concluding sentence that wasn't in the article.\n"
+    "5. End on a complete sentence. Never cut off mid-thought.\n"
+    "6. Maximum 60 words. Write ONLY the summary — no preamble, no label."
+)
+
 def groq_call(prompt, max_tokens=120):
     global _last_call
     if not _GROQ_KEY:
@@ -22,8 +35,15 @@ def groq_call(prompt, max_tokens=120):
     try:
         r = requests.post(_GROQ_URL,
             headers={"Authorization": f"Bearer {_GROQ_KEY}", "Content-Type": "application/json"},
-            json={"model": _GROQ_MODEL, "max_tokens": max_tokens, "temperature": 0.2,
-                  "messages": [{"role": "user", "content": prompt}]}, timeout=15)
+            json={
+                "model": _GROQ_MODEL,
+                "max_tokens": max_tokens,
+                "temperature": 0.0,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ]
+            }, timeout=15)
         if r.status_code == 429:
             time.sleep(65)
             return ""
@@ -65,13 +85,10 @@ def score_sentence(sent, freq):
 def extractive_summary(text, title=''):
     """
     Select the most relevant complete sentences up to MAX_WORDS.
-    Never truncates mid-sentence — if a sentence would exceed the limit,
-    it is skipped in favour of a shorter one. The result always ends on a
-    complete sentence boundary.
+    Never truncates mid-sentence — skips sentences that don't fit entirely.
     """
     sentences = split_sentences(text)
     if not sentences:
-        # Fall back to title, but still end on a word boundary — no mid-word cut
         words = (title or '').split()
         return ' '.join(words[:MAX_WORDS])
 
@@ -82,7 +99,6 @@ def extractive_summary(text, title=''):
     word_count = 0
     for idx, sent in scored:
         sent_words = len(sent.split())
-        # Only include this sentence if it fits entirely within the word budget
         if word_count + sent_words > MAX_WORDS:
             continue
         chosen_indices.add(idx)
@@ -91,14 +107,10 @@ def extractive_summary(text, title=''):
             break
 
     if not chosen_indices:
-        # Even the shortest relevant sentence is too long — take the first sentence as-is
-        # (it is already a complete sentence, just long)
         return sentences[0]
 
-    # Re-assemble in original reading order
     result_sentences = [sentences[i] for i in sorted(chosen_indices)]
-    summary = ' '.join(result_sentences)
-    return summary.strip()
+    return ' '.join(result_sentences).strip()
 
 def run(limit=20, fetch_online=False):
     print(f"📝 AgentP — 60-Word Summariser [Groq={'on' if _GROQ_KEY else 'off'}]")
@@ -115,20 +127,15 @@ def run(limit=20, fetch_online=False):
             text = description or title
         summary = ""
         if _GROQ_KEY:
-            # Prompt instructs the model to report facts only — no predictions,
-            # no sentiment, no market-impact speculation.
             prompt = (
-                "Summarise this financial news article in 60 words or fewer. "
-                "Report only what happened: the facts, the people or companies involved, "
-                "and any figures or decisions mentioned. "
-                "Do NOT predict stock moves, investor reactions, or market impact. "
-                "Do NOT use phrases like 'is expected to', 'may', 'could boost', "
-                "'investors optimistic', or any forward-looking language. "
-                "End with a complete sentence — never cut off mid-thought. "
-                "Write only the summary, no preamble.\n"
-                f"Article: {title}\n{text[:800]}"
+                "Summarise the article below in 60 words or fewer. "
+                "Only use facts from the article. "
+                "BAD: 'This is expected to boost investor confidence.' "
+                "GOOD: 'Profit rose 14% to ₹6.09bn. Revenue up 5.6%. NPA improved to 2.41%.'\n\n"
+                f"Title: {title}\n"
+                f"Article: {text[:1200]}"
             )
-            summary = groq_call(prompt, max_tokens=100)
+            summary = groq_call(prompt, max_tokens=110)
         if not summary:
             if text and text != title:
                 summary = extractive_summary(text, title)
