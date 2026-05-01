@@ -2,7 +2,7 @@
 agentO.py — Market Sentiment Analyser
 Reads each article and assigns:
   • sentiment_label  → 'bullish' | 'bearish' | 'neutral'
-  • sentiment_reason → one-line explanation
+  • sentiment_reason → one-line explanation of what the article contains
 
 Uses a weighted keyword scoring model — no external API keys required.
 Can optionally use VADER if installed: pip install vaderSentiment
@@ -20,7 +20,7 @@ _GROQ_MODEL = "llama-3.1-8b-instant"
 _last_call  = 0
 
 
-def groq_call(prompt, max_tokens=120):
+def groq_call(prompt, max_tokens=80):
     global _last_call
     if not _GROQ_KEY: return ""
     gap = 2.5 - (_time.time() - _last_call)
@@ -29,7 +29,7 @@ def groq_call(prompt, max_tokens=120):
     try:
         r = _requests.post(_GROQ_URL,
             headers={"Authorization": f"Bearer {_GROQ_KEY}", "Content-Type": "application/json"},
-            json={"model": _GROQ_MODEL, "max_tokens": max_tokens, "temperature": 0.2,
+            json={"model": _GROQ_MODEL, "max_tokens": max_tokens, "temperature": 0.0,
                   "messages": [{"role": "user", "content": prompt}]}, timeout=15)
         if r.status_code == 429: _time.sleep(65); return ""
         r.raise_for_status()
@@ -77,15 +77,6 @@ BEARISH_MODERATE = {
 
 NEGATION_WORDS = {'not', "n't", 'no', 'never', 'neither', 'without', 'barely', 'hardly'}
 
-# Reason templates
-REASON_TEMPLATES = {
-    ('bullish', 'strong'):   "Strong positive signal: {word} detected in article.",
-    ('bullish', 'moderate'): "Positive tone: {word} suggests upward movement.",
-    ('bearish', 'strong'):   "Strong negative signal: {word} detected in article.",
-    ('bearish', 'moderate'): "Negative tone: {word} suggests downward pressure.",
-    ('neutral', ''):         "No dominant bullish or bearish signals found.",
-}
-
 
 def tokenise(text: str) -> list:
     return re.sub(r'[^a-z\s\-]', '', (text or '').lower()).split()
@@ -93,7 +84,7 @@ def tokenise(text: str) -> list:
 
 def score_text(tokens: list) -> tuple:
     """
-    Returns (score: float, trigger_word: str, intensity: str)
+    Returns (score: float, trigger_word: str, intensity: str, label: str)
     score > 0 = bullish, score < 0 = bearish
     """
     bull_score = 0.0
@@ -102,11 +93,8 @@ def score_text(tokens: list) -> tuple:
     trigger_bear = ''
 
     for i, tok in enumerate(tokens):
-        # check for negation in window of 3 words before
         negated = any(tokens[max(0, i-3):i][j] in NEGATION_WORDS
                       for j in range(len(tokens[max(0, i-3):i])))
-
-        # bigram check too
         bigram = tok + (' ' + tokens[i+1] if i+1 < len(tokens) else '')
 
         for phrase in list(BULLISH_STRONG) + list(BULLISH_MODERATE):
@@ -132,60 +120,85 @@ def score_text(tokens: list) -> tuple:
     net = bull_score - bear_score
     if net > 1.5:
         intensity = 'strong' if net > 4.0 else 'moderate'
-        return net, trigger_bull or 'positive momentum', intensity, 'bullish'
+        return net, trigger_bull or 'positive indicators', intensity, 'bullish'
     elif net < -1.5:
         intensity = 'strong' if net < -4.0 else 'moderate'
-        return net, trigger_bear or 'negative momentum', intensity, 'bearish'
+        return net, trigger_bear or 'negative indicators', intensity, 'bearish'
     else:
         return net, '', '', 'neutral'
 
 
-def try_vader(text: str):
-    """Optional VADER fallback — returns (label, reason) or None."""
-    try:
-        from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-        analyser = SentimentIntensityAnalyzer()
-        score = analyser.polarity_scores(text)
-        compound = score['compound']
-        if compound >= 0.05:
-            return 'bullish', f"VADER compound score: {compound:.2f} (positive)"
-        elif compound <= -0.05:
-            return 'bearish', f"VADER compound score: {compound:.2f} (negative)"
+def build_reason(label: str, intensity: str, trigger: str, title: str) -> str:
+    """
+    Build a factual one-line reason that describes what the article reports,
+    not what might happen to the stock or investors.
+    """
+    if label == 'neutral':
+        return "Article contains no dominant bullish or bearish signals."
+
+    # Use the article title to make the reason specific and factual
+    title_short = title.strip().rstrip('.') if title else ''
+
+    if label == 'bullish':
+        if intensity == 'strong':
+            return f"Article reports {trigger} — a strongly positive development."
         else:
-            return 'neutral', f"VADER compound score: {compound:.2f} (neutral)"
-    except ImportError:
-        return None
+            return f"Article reports {trigger} — a positive development."
+    else:  # bearish
+        if intensity == 'strong':
+            return f"Article reports {trigger} — a strongly negative development."
+        else:
+            return f"Article reports {trigger} — a negative development."
+
+
+def analyse_article_groq(title: str, text: str) -> tuple:
+    """
+    Use Groq to classify sentiment with a factual reason.
+    Returns (label, reason) or ("", "") on failure.
+    """
+    combined = (title or '') + ' ' + (text or '')[:600]
+    prompt = (
+        "You are a financial news classifier. Read this article and return ONLY a JSON object.\n"
+        "Classify the sentiment as bullish, bearish, or neutral based strictly on what the article reports.\n"
+        "The reason must describe what the article says — not predict stock moves or investor reactions.\n"
+        "Bad reason: 'Company X may see a rally.' "
+        "Good reason: 'Company X reported a 20% rise in quarterly profit.'\n"
+        f"Article: {combined}\n"
+        'Respond ONLY with: {"sentiment": "bullish" or "bearish" or "neutral", '
+        '"reason": "one sentence describing what the article reports, max 20 words"}'
+    )
+    raw = groq_call(prompt, max_tokens=80)
+    if not raw:
+        return "", ""
+    try:
+        import json
+        clean = raw.replace("```json", "").replace("```", "").strip()
+        start, end = clean.find("{"), clean.rfind("}") + 1
+        if start >= 0 and end > start:
+            data = json.loads(clean[start:end])
+            label = data.get("sentiment", "neutral").lower()
+            if label not in ("bullish", "bearish", "neutral"):
+                label = "neutral"
+            reason = data.get("reason", "").strip()
+            return label, reason
+    except Exception:
+        pass
+    return "", ""
 
 
 def analyse_article(title: str, text: str) -> tuple:
-    """Returns (label, reason) — uses Groq if available, else keyword fallback."""
-    combined = (title or '') + ' ' + (text or '')[:800]
-
-    if False:  # disabled Groq for speed, using keyword scoring
-        prompt = f"""You are a financial analyst. Read this news and respond with ONLY a JSON object.
-Article: {combined[:600]}
-Respond exactly: {{"sentiment": "bullish" or "bearish" or "neutral", "reason": "one sentence max 20 words explaining why"}}"""
-        raw = groq_call(prompt, max_tokens=80)
-        if raw:
-            try:
-                import json
-                clean = raw.replace("```json","").replace("```","").strip()
-                start, end = clean.find("{"), clean.rfind("}")+1
-                if start >= 0 and end > start:
-                    data = json.loads(clean[start:end])
-                    label = data.get("sentiment","neutral").lower()
-                    if label not in ("bullish","bearish","neutral"): label = "neutral"
-                    return label, data.get("reason","")
-            except: pass
+    """Returns (label, reason)."""
+    # Try Groq first if key is available
+    if _GROQ_KEY:
+        label, reason = analyse_article_groq(title, text)
+        if label:
+            return label, reason
 
     # Fallback: keyword scoring
+    combined = (title or '') + ' ' + (text or '')[:800]
     tokens = tokenise(combined)
     _, trigger, intensity, label = score_text(tokens)
-    if label == 'neutral':
-        reason = REASON_TEMPLATES[('neutral', '')]
-    else:
-        template = REASON_TEMPLATES.get((label, intensity), "{word} trend detected.")
-        reason = template.format(word=trigger)
+    reason = build_reason(label, intensity, trigger, title)
     return label, reason
 
 
