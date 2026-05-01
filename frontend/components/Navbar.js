@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import LoginModal from './LoginModal';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
@@ -8,6 +8,7 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
   const [query,           setQuery]           = useState('');
   const [suggestions,     setSuggestions]     = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [prices,          setPrices]          = useState({});
   const searchRef = useRef(null);
 
   // Close on outside click
@@ -20,29 +21,46 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Fetch prices for visible suggestions
+  const fetchPrices = useCallback(async (symbols) => {
+    if (!symbols.length) return;
+    try {
+      const res  = await fetch(`${API}/api/price?symbols=${symbols.join(',')}`);
+      const data = await res.json();
+      if (data.success) setPrices(prev => ({ ...prev, ...data.data }));
+    } catch (_) {}
+  }, []);
+
   // Fetch suggestions with debounce
   useEffect(() => {
     const timer = setTimeout(async () => {
       try {
         const res  = await fetch(`${API}/api/search/suggest?q=${encodeURIComponent(query)}`);
         const data = await res.json();
-        if (data.success) setSuggestions(data.data);
+        if (data.success) {
+          setSuggestions(data.data);
+          fetchPrices(data.data.map(s => s.symbol));
+        }
       } catch (_) {}
     }, 200);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, fetchPrices]);
 
   const handleFocus = () => {
     setShowSuggestions(true);
     if (!query) {
       fetch(`${API}/api/search/suggest?q=`)
         .then(r => r.json())
-        .then(d => { if (d.success) setSuggestions(d.data); })
+        .then(d => {
+          if (d.success) {
+            setSuggestions(d.data);
+            fetchPrices(d.data.map(s => s.symbol));
+          }
+        })
         .catch(() => {});
     }
   };
 
-  // Clicking a row opens the stock news
   const handleRowClick = (stock) => {
     setView({ type: 'stock', symbol: stock.symbol });
     setQuery('');
@@ -96,14 +114,18 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
               position: 'absolute', top: '110%', left: 0, right: 0,
               background: '#fff', border: '1px solid #e5e7eb',
               borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-              zIndex: 200, overflow: 'hidden',
+              zIndex: 200, overflow: 'hidden', maxHeight: 420, overflowY: 'auto',
             }}>
               <div style={{ padding: '8px 12px 4px', fontSize: 11, color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                {query ? 'Matches' : '🔥 Popular Stocks'}
+                {query ? 'Matches' : '�� Popular Stocks'}
               </div>
 
               {suggestions.map(s => {
                 const inWatchlist = (watchlist || []).find(w => w.symbol === s.symbol);
+                const priceData   = prices[s.symbol] || null;
+                const exColors    = { NSE:'#7c3aed', BSE:'#ea580c', NASDAQ:'#2563eb', NYSE:'#16a34a' };
+                const exColor     = exColors[(s.exchange||'').toUpperCase()] || '#6b7280';
+
                 return (
                   <div
                     key={s.symbol}
@@ -119,28 +141,34 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
                   >
                     {/* Left: icon + name */}
                     <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                      <div style={{
-                        width: 36, height: 36, borderRadius: 8,
-                        background: '#eff6ff', display:'flex', alignItems:'center',
-                        justifyContent:'center', fontWeight:700, fontSize:11, color:'#2563eb',
-                      }}>{s.symbol.slice(0, 3)}</div>
+                      <div style={{ width:36, height:36, borderRadius:8, background:'#eff6ff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:11, color:'#2563eb' }}>
+                        {s.symbol.slice(0, 3)}
+                      </div>
                       <div>
-                        <div style={{ fontWeight:700, fontSize:13, color:'#111' }}>{s.symbol}</div>
-                        <div style={{ fontSize:11, color:'#6b7280' }}>{s.name} · {s.exchange}</div>
+                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                          <span style={{ fontWeight:700, fontSize:13, color:'#111' }}>{s.symbol}</span>
+                          <span style={{ fontSize:9, fontWeight:700, color: exColor, background:`${exColor}18`, borderRadius:4, padding:'1px 5px' }}>{s.exchange}</span>
+                        </div>
+                        <div style={{ fontSize:11, color:'#6b7280' }}>{s.name}</div>
                       </div>
                     </div>
 
-                    {/* Right: article count + Watch button */}
-                    <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                      {s.article_count > 0 && (
-                        <span style={{ fontSize:10, color:'#6b7280', background:'#f3f4f6', padding:'2px 7px', borderRadius:20 }}>
-                          {s.article_count} articles
-                        </span>
+                    {/* Right: live price + watch button */}
+                    <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+                      {priceData ? (
+                        <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end' }}>
+                          <span style={{ fontSize:12, fontWeight:700, color:'#111', fontFamily:'monospace' }}>{priceData.formatted}</span>
+                          <span style={{ fontSize:10, fontWeight:600, fontFamily:'monospace', color: priceData.isUp ? '#16a34a' : '#dc2626' }}>
+                            {priceData.isUp ? '+' : ''}{priceData.changePct.toFixed(2)}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span style={{ fontSize:11, color:'#c4c4c4', fontFamily:'monospace' }}>—</span>
                       )}
                       <button
                         onClick={e => {
                           e.stopPropagation();
-                          if (onWatchlist) onWatchlist(s); // ← pass full stock object
+                          if (onWatchlist) onWatchlist(s);
                           setView({ type: 'stock', symbol: s.symbol });
                           setQuery('');
                           setShowSuggestions(false);
