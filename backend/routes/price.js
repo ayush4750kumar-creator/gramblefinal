@@ -1,15 +1,22 @@
-// backend/routes/price.js
-// Add to your Express app: app.use('/api/price', require('./routes/price'));
-
 const express = require('express');
 const router  = express.Router();
 
-const CACHE = new Map(); // symbol → { price, change, changePct, currency, updatedAt }
-const TTL   = 15_000;   // 15s cache
+const CACHE = new Map();
+const TTL   = 15_000;
+
+// Explicit lists for accurate detection
+const US_EXCHANGES  = new Set(['NYSE', 'NASDAQ', 'NMS', 'NYQ', 'NGM', 'NCM', 'BATS']);
+const NSE_SYMBOLS   = new Set(['RELIANCE','TCS','HDFCBANK','INFY','ICICIBANK','SBIN','WIPRO','ADANIENT','TATAMOTORS','BAJFINANCE','HINDUNILVR','ITC','KOTAKBANK','AXISBANK','MARUTI','SUNPHARMA','NTPC','ONGC','TATASTEEL','JSWSTEEL','TITAN','NESTLEIND','HCLTECH','TECHM','ULTRACEMCO','ADANIPORTS','ADANIPOWER','ZOMATO','PAYTM','NYKAA','INDIGO','IRCTC','DRREDDY','CIPLA','APOLLOHOSP']);
+const US_SYMBOLS    = new Set(['AAPL','MSFT','NVDA','TSLA','GOOGL','META','AMZN','NFLX','AMD','INTC','UBER','JPM','BAC','GS','COIN','PLTR','SHOP']);
+
+function isIndianSymbol(symbol) {
+  if (US_SYMBOLS.has(symbol)) return false;
+  if (NSE_SYMBOLS.has(symbol)) return true;
+  // Indian NSE symbols: all caps, no dots, typically 2-10 chars
+  return /^[A-Z]{2,10}$/.test(symbol) && !symbol.endsWith('.F') && !symbol.endsWith('.L');
+}
 
 async function fetchYahooPrice(symbol) {
-  // For NSE stocks Yahoo uses ".NS" suffix, BSE uses ".BO"
-  // We try raw symbol first (works for US stocks), then .NS
   const trySymbols = isIndianSymbol(symbol)
     ? [`${symbol}.NS`, `${symbol}.BO`]
     : [symbol];
@@ -38,18 +45,11 @@ async function fetchYahooPrice(symbol) {
   return null;
 }
 
-function isIndianSymbol(symbol) {
-  // Heuristic: symbols without dots that aren't well-known US tickers
-  const US_TICKERS = new Set(['AAPL','MSFT','NVDA','TSLA','GOOGL','META','AMZN','NFLX','AMD','INTC','UBER','JPM','BAC','GS','COIN','PLTR','SHOP']);
-  return !US_TICKERS.has(symbol.toUpperCase()) && !symbol.includes('.');
-}
-
 function fmt(price, currency) {
   if (currency === 'INR') return `₹${price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   return `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-// GET /api/price?symbols=RELIANCE,AAPL,TSLA
 router.get('/', async (req, res) => {
   const raw     = (req.query.symbols || req.query.symbol || '').toUpperCase();
   const symbols = [...new Set(raw.split(',').map(s => s.trim()).filter(Boolean))].slice(0, 20);
@@ -62,25 +62,21 @@ router.get('/', async (req, res) => {
 
   for (const sym of symbols) {
     const cached = CACHE.get(sym);
-    if (cached && now - cached.updatedAt < TTL) {
-      results[sym] = cached;
-    } else {
-      toFetch.push(sym);
-    }
+    if (cached && now - cached.updatedAt < TTL) results[sym] = cached;
+    else toFetch.push(sym);
   }
 
-  // Parallel fetch for uncached symbols
   await Promise.all(toFetch.map(async sym => {
     const data = await fetchYahooPrice(sym);
     if (data) {
       const entry = {
-        price:      data.price,
-        change:     data.change,
-        changePct:  data.changePct,
-        currency:   data.currency,
-        formatted:  fmt(data.price, data.currency),
-        isUp:       data.change >= 0,
-        updatedAt:  now,
+        price:     data.price,
+        change:    data.change,
+        changePct: data.changePct,
+        currency:  data.currency,
+        formatted: fmt(data.price, data.currency),
+        isUp:      data.change >= 0,
+        updatedAt: now,
       };
       CACHE.set(sym, entry);
       results[sym] = entry;
