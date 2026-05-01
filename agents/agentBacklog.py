@@ -1,9 +1,10 @@
 """
-agentBacklog.py — Parallel Backlog Processor (v9)
+agentBacklog.py — Parallel Backlog Processor (v10)
 
-Changes from v8:
-- Removed Pexels fallback — og:image only, black if none
-- Always scrape for image even when full_text already exists
+Changes from v9:
+- get_backlog now also picks up articles that have summary but no image
+- Always scrape for og:image even when full_text already exists
+- No Pexels fallback — og:image only, black if none
 """
 import sys, os, time, json, threading, re, unicodedata
 sys.path.insert(0, os.path.dirname(__file__))
@@ -396,6 +397,21 @@ def process_one(key: str, article: dict, agent_id: int):
         print(f"  ⚠ Agent {agent_id}: article {article['id']} has no content — skipping")
         return None
 
+    # if article already has a summary, skip Groq and just save the image
+    existing_summary = article.get("summary_60w", "") or ""
+    if existing_summary.strip():
+        image_url = resolve_image(article, scraped_image)
+        if image_url:
+            print(f"  🖼  Agent {agent_id}: image resolved for article {article['id']}")
+            return {
+                "id":               article["id"],
+                "sentiment_label":  article.get("sentiment_label", "neutral") or "neutral",
+                "sentiment_reason": article.get("sentiment_reason", "") or "Signal detected.",
+                "summary_60w":      existing_summary,
+                "image_url":        image_url,
+            }
+        return None
+
     prompt = f"""You are a financial news analyst. Analyse this article and respond ONLY with a JSON object — no markdown, no explanation.
 
 Article:
@@ -504,8 +520,10 @@ def get_backlog(symbol: str = None, limit: int = 100) -> list:
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     if symbol:
         cur.execute("""
-            SELECT id, title, full_text, url, image_url, symbol FROM articles
-            WHERE (summary_60w IS NULL OR summary_60w = '')
+            SELECT id, title, full_text, url, image_url, symbol, summary_60w,
+                   sentiment_label, sentiment_reason FROM articles
+            WHERE (summary_60w IS NULL OR summary_60w = ''
+                   OR image_url IS NULL OR image_url = '')
             AND (is_duplicate IS NULL OR is_duplicate = false)
             AND created_at > NOW() - INTERVAL '6 days'
             AND symbol = %s
@@ -513,8 +531,10 @@ def get_backlog(symbol: str = None, limit: int = 100) -> list:
         """, (symbol, limit))
     else:
         cur.execute("""
-            SELECT id, title, full_text, url, image_url, symbol FROM articles
-            WHERE (summary_60w IS NULL OR summary_60w = '')
+            SELECT id, title, full_text, url, image_url, symbol, summary_60w,
+                   sentiment_label, sentiment_reason FROM articles
+            WHERE (summary_60w IS NULL OR summary_60w = ''
+                   OR image_url IS NULL OR image_url = '')
             AND (is_duplicate IS NULL OR is_duplicate = false)
             AND created_at > NOW() - INTERVAL '6 days'
             ORDER BY created_at DESC LIMIT %s
