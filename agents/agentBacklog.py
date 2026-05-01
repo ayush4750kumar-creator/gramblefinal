@@ -1,9 +1,9 @@
 """
-agentBacklog.py — Parallel Backlog Processor (v8)
+agentBacklog.py — Parallel Backlog Processor (v9)
 
-Changes from v7:
-- Smarter image resolution: falls back to title/summary keywords if no symbol
-- Removes repeated stock ticker / pexels placeholder images
+Changes from v8:
+- Removed Pexels fallback — og:image only, black if none
+- Always scrape for image even when full_text already exists
 """
 import sys, os, time, json, threading, re, unicodedata
 sys.path.insert(0, os.path.dirname(__file__))
@@ -37,12 +37,12 @@ LOGO_BLACKLIST = [
 
 # Pexels URLs that are the repeated generic stock ticker / placeholder
 PEXELS_BLACKLIST = [
-    'pexels-photo-534216',   # the repeating stock ticker board
-    'pexels-photo-210607',   # common finance fallback
-    'pexels-photo-187041',   # stock market generic
+    'pexels-photo-534216',
+    'pexels-photo-210607',
+    'pexels-photo-187041',
 ]
 
-# Symbol → readable Pexels search query
+# Symbol → readable Pexels search query (kept for future use)
 SYMBOL_MAP = {
     "AAPL":           "Apple technology iPhone",
     "NVDA":           "Nvidia GPU chip AI",
@@ -97,7 +97,7 @@ SYMBOL_MAP = {
     "APOLLOHOSP":     "Apollo Hospital India",
 }
 
-# Category keywords → Pexels query
+# Category keywords → Pexels query (kept for future use)
 CATEGORY_QUERY_MAP = [
     (["ipo", "listing", "debut"],                        "stock exchange IPO listing"),
     (["merger", "acquisition", "takeover", "buyout"],    "business merger handshake"),
@@ -136,18 +136,10 @@ def sanitize(text: str) -> str:
 
 
 def extract_pexels_query(title: str, summary: str = "") -> str:
-    """
-    Build a meaningful Pexels search query from title + summary.
-    Matches against CATEGORY_QUERY_MAP keywords.
-    Falls back to first 4 meaningful words of title.
-    """
     combined = (title + " " + (summary or "")).lower()
-
     for keywords, query in CATEGORY_QUERY_MAP:
         if any(kw in combined for kw in keywords):
             return query
-
-    # fallback: take first 4 non-trivial words from title
     stop = {"the", "a", "an", "is", "are", "was", "were", "of", "in",
             "on", "at", "to", "for", "by", "with", "and", "or", "but",
             "after", "before", "as", "from", "that", "this", "its"}
@@ -203,7 +195,6 @@ def scrape_article(url: str) -> dict:
 # ── Image helpers ─────────────────────────────────────────────────────────────
 
 def is_real_image(url: str) -> bool:
-    """Returns False if the URL looks like a logo/brand/placeholder."""
     if not url:
         return False
     url_lower = url.lower()
@@ -215,7 +206,6 @@ def is_real_image(url: str) -> bool:
 
 
 def get_pexels_image(query: str) -> str | None:
-    """Search Pexels. Returns landscape image URL or None."""
     if not PEXELS_KEY or not query:
         return None
     try:
@@ -228,7 +218,6 @@ def get_pexels_image(query: str) -> str | None:
         if r.status_code != 200:
             return None
         photos = r.json().get("photos", [])
-        # pick second photo if available to add variety
         if len(photos) >= 2:
             return photos[1]["src"]["large"]
         elif photos:
@@ -236,6 +225,7 @@ def get_pexels_image(query: str) -> str | None:
         return None
     except Exception:
         return None
+
 
 def resolve_image(article: dict, scraped_image: str | None) -> str | None:
     """
@@ -369,9 +359,12 @@ def process_one(key: str, article: dict, agent_id: int):
     title = sanitize(title)
     text  = sanitize(text)
 
-    scraped_image = None
+    scraped_image  = None
+    existing_image = article.get("image_url", "")
+    needs_image    = not existing_image or not is_real_image(existing_image)
 
     if len(text.strip()) < 200 and url:
+        # short text — scrape for both text AND image
         print(f"  🌐 Agent {agent_id}: scraping article {article['id']}")
         scraped = scrape_article(url)
         scraped_image = scraped["image"]
@@ -391,6 +384,11 @@ def process_one(key: str, article: dict, agent_id: int):
                     conn.close()
             except Exception:
                 pass
+
+    elif needs_image and url:
+        # text is fine but no image yet — scrape just for og:image
+        scraped = scrape_article(url)
+        scraped_image = scraped["image"]
 
     combined = sanitize((title + "\n\n" + text[:3000]).strip())
 
@@ -445,7 +443,6 @@ CRITICAL RULES:
 
             reason = data.get("reason", "").strip() or f"{label.capitalize()} signal detected."
 
-            # resolve image AFTER we have the summary (so extract_pexels_query can use it)
             article["summary_60w"] = summary
             image_url = resolve_image(article, scraped_image)
             if image_url:
