@@ -451,7 +451,10 @@ CRITICAL RULES:
             summary = data.get("summary", "").strip()
             words   = summary.split()
             if len(words) > 60:
-                summary = " ".join(words[:60])
+                # cut at last sentence boundary within 60 words
+                truncated = " ".join(words[:60])
+                last_dot  = max(truncated.rfind(". "), truncated.rfind("! "), truncated.rfind("? "))
+                summary   = truncated[:last_dot + 1] if last_dot > 20 else truncated
             elif len(words) < 30:
                 padded  = (title + ". " + summary).strip()
                 words   = padded.split()
