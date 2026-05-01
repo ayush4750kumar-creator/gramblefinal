@@ -143,9 +143,9 @@ Respond ONLY with a JSON object, no explanation, no markdown:
 }}
 
 Rules:
-- feed="company" only if the article is PRIMARILY about ONE specific company
-- feed="global" for macro, forex, commodities, indices, multi-company, or general market news
-- symbol: use the stock exchange ticker (e.g. RELIANCE, TCS, AAPL, ALK). Leave empty if not a single-company article or if you don't know the ticker.
+- feed="company" if the article mentions or is primarily about ANY specific named company, brand, or organisation — even if it also mentions broader market context. When in doubt, prefer "company" over "global".
+- feed="global" ONLY for pure macro news with NO specific company mentioned: forex rates, commodity prices, index movements, central bank policy, geopolitical events with no company focus.
+- symbol: use the primary stock exchange ticker (e.g. RELIANCE, TCS, AAPL, SAVE). Always try to provide a symbol when feed="company". Leave empty only if you truly cannot identify the company's ticker.
 - category="official" for regulatory filings, exchange notices, government press releases
 - category="after_hours" for pre-market, post-market, overnight, Gift Nifty wrap articles
 - category="analysis" for technical analysis, price targets, forecasts, previews

@@ -63,30 +63,41 @@ def score_sentence(sent, freq):
     return sum(freq.get(w, 0) for w in words) / len(words)
 
 def extractive_summary(text, title=''):
+    """
+    Select the most relevant complete sentences up to MAX_WORDS.
+    Never truncates mid-sentence — if a sentence would exceed the limit,
+    it is skipped in favour of a shorter one. The result always ends on a
+    complete sentence boundary.
+    """
     sentences = split_sentences(text)
     if not sentences:
+        # Fall back to title, but still end on a word boundary — no mid-word cut
         words = (title or '').split()
-        return ' '.join(words[:MAX_WORDS]) + ('...' if len(words) > MAX_WORDS else '')
+        return ' '.join(words[:MAX_WORDS])
+
     freq = word_freq(sentences)
     scored = sorted(enumerate(sentences), key=lambda x: score_sentence(x[1], freq), reverse=True)
+
     chosen_indices = set()
     word_count = 0
     for idx, sent in scored:
         sent_words = len(sent.split())
+        # Only include this sentence if it fits entirely within the word budget
         if word_count + sent_words > MAX_WORDS:
             continue
         chosen_indices.add(idx)
         word_count += sent_words
         if word_count >= MAX_WORDS * 0.8:
             break
+
     if not chosen_indices:
-        first = sentences[0].split()
-        return ' '.join(first[:MAX_WORDS]) + ('...' if len(first) > MAX_WORDS else '')
+        # Even the shortest relevant sentence is too long — take the first sentence as-is
+        # (it is already a complete sentence, just long)
+        return sentences[0]
+
+    # Re-assemble in original reading order
     result_sentences = [sentences[i] for i in sorted(chosen_indices)]
     summary = ' '.join(result_sentences)
-    words = summary.split()
-    if len(words) > MAX_WORDS:
-        summary = ' '.join(words[:MAX_WORDS]) + '...'
     return summary.strip()
 
 def run(limit=20, fetch_online=False):
@@ -103,11 +114,18 @@ def run(limit=20, fetch_online=False):
         if not text:
             text = description or title
         summary = ""
-        if False:  # disabled Groq for speed
+        if _GROQ_KEY:
+            # Prompt instructs the model to report facts only — no predictions,
+            # no sentiment, no market-impact speculation.
             prompt = (
-                "Summarise this financial news in exactly 60 words or fewer. "
-                "Be factual, mention company names, numbers, and market impact. "
-                "No fluff. Write only the summary.\n"
+                "Summarise this financial news article in 60 words or fewer. "
+                "Report only what happened: the facts, the people or companies involved, "
+                "and any figures or decisions mentioned. "
+                "Do NOT predict stock moves, investor reactions, or market impact. "
+                "Do NOT use phrases like 'is expected to', 'may', 'could boost', "
+                "'investors optimistic', or any forward-looking language. "
+                "End with a complete sentence — never cut off mid-thought. "
+                "Write only the summary, no preamble.\n"
                 f"Article: {title}\n{text[:800]}"
             )
             summary = groq_call(prompt, max_tokens=100)
@@ -115,8 +133,7 @@ def run(limit=20, fetch_online=False):
             if text and text != title:
                 summary = extractive_summary(text, title)
             else:
-                words = title.split()
-                summary = ' '.join(words[:MAX_WORDS])
+                summary = title
         update_article(art['id'], {'summary_60w': summary})
         processed += 1
     print(f"  ✅ AgentP summarised {processed} articles\n")
