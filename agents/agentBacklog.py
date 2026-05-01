@@ -237,46 +237,19 @@ def get_pexels_image(query: str) -> str | None:
     except Exception:
         return None
 
-
 def resolve_image(article: dict, scraped_image: str | None) -> str | None:
     """
     Priority:
     1. Already has a real image_url in DB → skip (return None = no update)
-    2. og:image looks like a real photo → use it
-    3. Pexels with symbol map → use it
-    4. Pexels with category keywords from title/summary → use it
-    5. None
+    2. og:image scraped from article page → use it
+    3. Nothing found → return None (article stays with no image / black)
     """
     existing = article.get("image_url", "")
-    # skip if already has a real non-placeholder image
     if existing and is_real_image(existing):
         return None
 
-    # og:image only if it's a real photo not a logo
     if scraped_image and is_real_image(scraped_image):
         return scraped_image
-
-    symbol = (article.get("symbol") or "").upper().strip()
-
-    # symbol map lookup
-    if symbol and symbol in SYMBOL_MAP:
-        img = get_pexels_image(SYMBOL_MAP[symbol])
-        if img:
-            return img
-
-    # category/keyword extraction from title + summary
-    title   = article.get("title", "") or ""
-    summary = article.get("summary_60w", "") or ""
-    query   = extract_pexels_query(title, summary)
-    img     = get_pexels_image(query)
-    if img:
-        return img
-
-    # last resort: generic symbol fallback
-    if symbol:
-        img = get_pexels_image(f"{symbol} stock market finance India")
-        if img:
-            return img
 
     return None
 
