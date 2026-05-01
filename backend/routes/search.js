@@ -1,232 +1,284 @@
-const express  = require('express');
-const router   = express.Router();
-const { pool } = require('../config/database');
+// frontend/src/components/SearchBar.js  (or wherever your search bar lives)
+// This is a standalone search bar component. Integrate into your Header/Navbar.
+// It fetches suggestions from your existing /api/search/suggest endpoint,
+// then enriches them with live prices from /api/price.
 
-const recentTriggers = new Map();
-const PIPELINE_URL   = process.env.PIPELINE_URL || 'https://resplendent-surprise.up.railway.app';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
-async function triggerPipeline(symbol) {
-  const now  = Date.now();
-  const last = recentTriggers.get(symbol);
-  if (last && now - last < 30_000) {
-    console.log(`⏭  Skipping pipeline for ${symbol} — triggered ${Math.round((now - last) / 1000)}s ago`);
-    return;
-  }
-  recentTriggers.set(symbol, now);
+const SEARCH_API = process.env.NEXT_PUBLIC_API_URL
+  ? `${process.env.NEXT_PUBLIC_API_URL}/api/search`
+  : 'https://gramblefinal-production.up.railway.app/api/search';
 
-  // Fire-and-forget GET to /trigger-search — don't await the pipeline work
-  console.log(`🔥 Triggering search pipeline for ${symbol} → ${PIPELINE_URL}`);
-  fetch(`${PIPELINE_URL}/trigger-search?symbol=${encodeURIComponent(symbol)}`, {
-    signal: AbortSignal.timeout(5000),
-  }).then(r => {
-    console.log(`[pipeline][${symbol}] trigger-search response: ${r.status}`);
-  }).catch(e => {
-    console.error(`[pipeline][${symbol}] trigger-search failed: ${e.message}`);
-  });
+const PRICE_API = process.env.NEXT_PUBLIC_API_URL
+  ? `${process.env.NEXT_PUBLIC_API_URL}/api/price`
+  : 'https://gramblefinal-production.up.railway.app/api/price';
+
+// ── Exchange badge colors ─────────────────────────────────────────────────
+const EXCHANGE_COLORS = {
+  NSE:    { bg: '#ede9fe', color: '#7c3aed' },
+  BSE:    { bg: '#fff7ed', color: '#ea580c' },
+  NASDAQ: { bg: '#eff6ff', color: '#2563eb' },
+  NYSE:   { bg: '#f0fdf4', color: '#16a34a' },
+  UNKNOWN:{ bg: '#f3f4f6', color: '#6b7280' },
+};
+
+function ExchangeBadge({ exchange }) {
+  const ex  = (exchange || 'UNKNOWN').toUpperCase().replace('NMS','NASDAQ').replace('NYQ','NYSE');
+  const cfg = EXCHANGE_COLORS[ex] || EXCHANGE_COLORS.UNKNOWN;
+  return (
+    <span style={{
+      fontSize: 9, fontWeight: 700, padding: '2px 6px',
+      borderRadius: 4, background: cfg.bg, color: cfg.color,
+      letterSpacing: 0.4, flexShrink: 0,
+    }}>
+      {ex}
+    </span>
+  );
 }
 
-// Poll DB until we have at least minCount articles or timeout
-async function waitForArticles(symbol, minCount = 5, timeoutMs = 15000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const result = await pool.query(
-      `SELECT COUNT(*) as count FROM articles
-       WHERE symbol = $1
-         AND published_at >= NOW() - INTERVAL '7 days'
-         AND (is_duplicate IS NULL OR is_duplicate = false)
-         AND is_ready = true`,
-      [symbol]
+function LivePrice({ priceData, loading }) {
+  if (loading) {
+    return (
+      <span style={{
+        fontSize: 11, color: '#c4c4c4', fontFamily: 'monospace',
+      }}>...</span>
     );
-    const count = parseInt(result.rows[0].count);
-    if (count >= minCount) return count;
-    await new Promise(r => setTimeout(r, 1500));
   }
-  return 0;
+  if (!priceData) return null;
+
+  const { formatted, changePct, isUp } = priceData;
+  const sign  = isUp ? '+' : '';
+  const color = isUp ? '#16a34a' : '#dc2626';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+      <span style={{
+        fontSize: 12, fontWeight: 700, color: '#111',
+        fontFamily: 'monospace', letterSpacing: '-0.3px',
+      }}>
+        {formatted}
+      </span>
+      <span style={{
+        fontSize: 10, fontWeight: 600, color,
+        fontFamily: 'monospace',
+      }}>
+        {sign}{changePct.toFixed(2)}%
+      </span>
+    </div>
+  );
 }
 
-// ── rest of file unchanged ────────────────────────────────────────────────────
+export default function SearchBar({ onSelect, watchlist = [], onWatchlist }) {
+  const [query,       setQuery]       = useState('');
+  const [suggestions, setSuggestions] = useState([]);
+  const [prices,      setPrices]      = useState({});
+  const [priceLoading,setPriceLoading]= useState(false);
+  const [open,        setOpen]        = useState(false);
+  const [isPopular,   setIsPopular]   = useState(true);
+  const [loading,     setLoading]     = useState(false);
+  const [focused,     setFocused]     = useState(false);
 
-async function yahooSearch(q) {
-  try {
-    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=6&newsCount=0&listsCount=0`;
-    const res  = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal:  AbortSignal.timeout(4000),
-    });
-    const data = await res.json();
-    const quotes = (data?.quotes || []).filter(q =>
-      q.symbol && (q.shortname || q.longname) && ['EQUITY', 'ETF'].includes(q.quoteType)
-    );
-    return quotes.map(q => ({
-      symbol:        q.symbol,
-      name:          q.shortname || q.longname || q.symbol,
-      exchange:      q.exchDisp  || q.exchange  || 'UNKNOWN',
-      article_count: 0,
-    }));
-  } catch (e) {
-    console.error('Yahoo search error:', e.message);
-    return [];
-  }
+  const inputRef    = useRef(null);
+  const dropdownRef = useRef(null);
+  const debounceRef = useRef(null);
+
+  // Fetch prices for a list of symbols
+  const fetchPrices = useCallback(async (symbols) => {
+    if (!symbols.length) return;
+    setPriceLoading(true);
+    try {
+      const res  = await fetch(`${PRICE_API}?symbols=${symbols.join(',')}`);
+      const data = await res.json();
+      if (data.success) setPrices(data.data || {});
+    } catch (_) {}
+    setPriceLoading(false);
+  }, []);
+
+  // Fetch suggestions (debounced)
+  const fetchSuggestions = useCallback(async (q) => {
+    setLoading(true);
+    try {
+      const url  = q ? `${SEARCH_API}/suggest?q=${encodeURIComponent(q)}` : `${SEARCH_API}/suggest`;
+      const res  = await fetch(url);
+      const data = await res.json();
+      const list = data.data || [];
+      setSuggestions(list);
+      setIsPopular(data.popular || !q);
+      setOpen(true);
+      // Fetch prices for all returned symbols
+      const syms = list.map(s => s.symbol).filter(Boolean);
+      if (syms.length) fetchPrices(syms);
+    } catch (_) {}
+    setLoading(false);
+  }, [fetchPrices]);
+
+  // Debounce query changes
+  useEffect(() => {
+    if (!focused) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchSuggestions(query), query ? 250 : 0);
+    return () => clearTimeout(debounceRef.current);
+  }, [query, focused, fetchSuggestions]);
+
+  // Load popular stocks on focus (when empty)
+  const handleFocus = () => {
+    setFocused(true);
+    if (!query) fetchSuggestions('');
+  };
+
+  // Click outside to close
+  useEffect(() => {
+    const handler = (e) => {
+      if (!dropdownRef.current?.contains(e.target) && !inputRef.current?.contains(e.target)) {
+        setOpen(false);
+        setFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleSelect = (stock) => {
+    setQuery('');
+    setOpen(false);
+    onSelect?.({ type: 'stock', symbol: stock.symbol });
+  };
+
+  const handleWatch = (e, symbol) => {
+    e.stopPropagation();
+    onWatchlist?.(symbol);
+  };
+
+  const isWatched = (symbol) => watchlist?.some(w => w.symbol === symbol);
+
+  return (
+    <div style={{ position: 'relative', flex: 1, maxWidth: 480 }}>
+      {/* ── Input ─────────────────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex', alignItems: 'center',
+        background: focused ? '#fff' : '#f3f4f6',
+        border: focused ? '1.5px solid #2563eb' : '1.5px solid #e5e7eb',
+        borderRadius: 10, padding: '0 12px',
+        transition: 'all 0.15s', gap: 8,
+      }}>
+        <span style={{ fontSize: 15, color: '#9ca3af', flexShrink: 0 }}>🔍</span>
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onFocus={handleFocus}
+          placeholder="Search any stock worldwide... AAPL, TSLA, RELIANCE"
+          style={{
+            flex: 1, border: 'none', background: 'transparent',
+            outline: 'none', fontSize: 13, color: '#111',
+            padding: '10px 0', fontFamily: 'inherit',
+          }}
+        />
+        {loading && (
+          <div style={{
+            width: 14, height: 14, border: '2px solid #e5e7eb',
+            borderTop: '2px solid #2563eb', borderRadius: '50%',
+            animation: 'spin 0.7s linear infinite', flexShrink: 0,
+          }} />
+        )}
+        {query && (
+          <button onClick={() => { setQuery(''); inputRef.current?.focus(); }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16, padding: 0, lineHeight: 1 }}>
+            ×
+          </button>
+        )}
+      </div>
+
+      {/* ── Dropdown ──────────────────────────────────────────────────── */}
+      {open && suggestions.length > 0 && (
+        <div
+          ref={dropdownRef}
+          style={{
+            position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+            background: '#fff', border: '1px solid #e5e7eb',
+            borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+            zIndex: 1000, overflow: 'hidden', maxHeight: 420, overflowY: 'auto',
+          }}
+        >
+          {isPopular && (
+            <div style={{
+              padding: '10px 14px 6px', fontSize: 10, fontWeight: 700,
+              color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1,
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              🔥 Popular Stocks
+            </div>
+          )}
+
+          {suggestions.map((stock) => {
+            const priceData = prices[stock.symbol];
+            const watched   = isWatched(stock.symbol);
+
+            return (
+              <div
+                key={stock.symbol}
+                onClick={() => handleSelect(stock)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 14px', cursor: 'pointer',
+                  transition: 'background 0.1s',
+                  borderBottom: '1px solid #f3f4f6',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8faff'}
+                onMouseLeave={e => e.currentTarget.style.background = '#fff'}
+              >
+                {/* Symbol avatar */}
+                <div style={{
+                  width: 34, height: 34, borderRadius: 8,
+                  background: '#eff6ff', color: '#2563eb',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 800, fontSize: 10, flexShrink: 0, letterSpacing: 0,
+                }}>
+                  {stock.symbol.slice(0, 3)}
+                </div>
+
+                {/* Name + exchange */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: '#111' }}>{stock.symbol}</span>
+                    <ExchangeBadge exchange={stock.exchange} />
+                    {stock.article_count > 0 && (
+                      <span style={{ fontSize: 10, color: '#9ca3af' }}>{stock.article_count} articles</span>
+                    )}
+                  </div>
+                  <div style={{
+                    fontSize: 11, color: '#6b7280', marginTop: 1,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>
+                    {stock.name}
+                  </div>
+                </div>
+
+                {/* Live price */}
+                <div style={{ flexShrink: 0 }}>
+                  <LivePrice priceData={priceData} loading={priceLoading && !priceData} />
+                </div>
+
+                {/* Watch button */}
+                <button
+                  onClick={(e) => handleWatch(e, stock.symbol)}
+                  style={{
+                    flexShrink: 0, padding: '5px 10px', borderRadius: 6,
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none',
+                    background: watched ? '#2563eb' : '#f3f4f6',
+                    color: watched ? '#fff' : '#374151',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {watched ? '✓' : '+ Watch'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
 }
-
-const POPULAR_STOCKS = [
-  { symbol: 'RELIANCE',   name: 'Reliance Industries',       exchange: 'NSE' },
-  { symbol: 'TCS',        name: 'Tata Consultancy Services', exchange: 'NSE' },
-  { symbol: 'HDFCBANK',   name: 'HDFC Bank',                 exchange: 'NSE' },
-  { symbol: 'INFY',       name: 'Infosys',                   exchange: 'NSE' },
-  { symbol: 'ICICIBANK',  name: 'ICICI Bank',                exchange: 'NSE' },
-  { symbol: 'SBIN',       name: 'State Bank of India',       exchange: 'NSE' },
-  { symbol: 'WIPRO',      name: 'Wipro',                     exchange: 'NSE' },
-  { symbol: 'ADANIENT',   name: 'Adani Enterprises',         exchange: 'NSE' },
-  { symbol: 'TATAMOTORS', name: 'Tata Motors',               exchange: 'NSE' },
-  { symbol: 'BAJFINANCE', name: 'Bajaj Finance',             exchange: 'NSE' },
-  { symbol: 'AAPL',       name: 'Apple',                     exchange: 'NASDAQ' },
-  { symbol: 'MSFT',       name: 'Microsoft',                 exchange: 'NASDAQ' },
-  { symbol: 'NVDA',       name: 'Nvidia',                    exchange: 'NASDAQ' },
-  { symbol: 'TSLA',       name: 'Tesla',                     exchange: 'NASDAQ' },
-  { symbol: 'GOOGL',      name: 'Alphabet (Google)',         exchange: 'NASDAQ' },
-  { symbol: 'META',       name: 'Meta',                      exchange: 'NASDAQ' },
-  { symbol: 'AMZN',       name: 'Amazon',                    exchange: 'NASDAQ' },
-];
-
-const ALL_STOCKS = [
-  ...POPULAR_STOCKS,
-  { symbol: 'HINDUNILVR', name: 'Hindustan Unilever',  exchange: 'NSE' },
-  { symbol: 'ITC',        name: 'ITC Limited',         exchange: 'NSE' },
-  { symbol: 'KOTAKBANK',  name: 'Kotak Mahindra Bank', exchange: 'NSE' },
-  { symbol: 'AXISBANK',   name: 'Axis Bank',           exchange: 'NSE' },
-  { symbol: 'MARUTI',     name: 'Maruti Suzuki',       exchange: 'NSE' },
-  { symbol: 'SUNPHARMA',  name: 'Sun Pharma',          exchange: 'NSE' },
-  { symbol: 'NTPC',       name: 'NTPC',                exchange: 'NSE' },
-  { symbol: 'ONGC',       name: 'ONGC',                exchange: 'NSE' },
-  { symbol: 'TATASTEEL',  name: 'Tata Steel',          exchange: 'NSE' },
-  { symbol: 'JSWSTEEL',   name: 'JSW Steel',           exchange: 'NSE' },
-  { symbol: 'TITAN',      name: 'Titan Company',       exchange: 'NSE' },
-  { symbol: 'NESTLEIND',  name: 'Nestle India',        exchange: 'NSE' },
-  { symbol: 'HCLTECH',    name: 'HCL Technologies',    exchange: 'NSE' },
-  { symbol: 'TECHM',      name: 'Tech Mahindra',       exchange: 'NSE' },
-  { symbol: 'ULTRACEMCO', name: 'UltraTech Cement',    exchange: 'NSE' },
-  { symbol: 'ADANIPORTS', name: 'Adani Ports',         exchange: 'NSE' },
-  { symbol: 'ADANIPOWER', name: 'Adani Power',         exchange: 'NSE' },
-  { symbol: 'ZOMATO',     name: 'Zomato',              exchange: 'NSE' },
-  { symbol: 'PAYTM',      name: 'Paytm',               exchange: 'NSE' },
-  { symbol: 'NYKAA',      name: 'Nykaa',               exchange: 'NSE' },
-  { symbol: 'INDIGO',     name: 'IndiGo Airlines',     exchange: 'NSE' },
-  { symbol: 'IRCTC',      name: 'IRCTC',               exchange: 'NSE' },
-  { symbol: 'DRREDDY',    name: "Dr Reddy's",          exchange: 'NSE' },
-  { symbol: 'CIPLA',      name: 'Cipla',               exchange: 'NSE' },
-  { symbol: 'APOLLOHOSP', name: 'Apollo Hospitals',    exchange: 'NSE' },
-  { symbol: 'NFLX',       name: 'Netflix',             exchange: 'NASDAQ' },
-  { symbol: 'AMD',        name: 'AMD',                 exchange: 'NASDAQ' },
-  { symbol: 'INTC',       name: 'Intel',               exchange: 'NASDAQ' },
-  { symbol: 'UBER',       name: 'Uber',                exchange: 'NYSE' },
-  { symbol: 'JPM',        name: 'JPMorgan Chase',      exchange: 'NYSE' },
-  { symbol: 'BAC',        name: 'Bank of America',     exchange: 'NYSE' },
-  { symbol: 'GS',         name: 'Goldman Sachs',       exchange: 'NYSE' },
-  { symbol: 'COIN',       name: 'Coinbase',            exchange: 'NASDAQ' },
-  { symbol: 'PLTR',       name: 'Palantir',            exchange: 'NASDAQ' },
-  { symbol: 'SHOP',       name: 'Shopify',             exchange: 'NYSE' },
-];
-
-router.get('/suggest', async (req, res) => {
-  const q = (req.query.q || '').trim().toLowerCase();
-
-  if (!q) {
-    return res.json({ success: true, data: POPULAR_STOCKS, popular: true });
-  }
-
-  let matches = ALL_STOCKS.filter(s =>
-    s.symbol.toLowerCase().includes(q) ||
-    s.name.toLowerCase().includes(q)
-  ).slice(0, 8);
-
-  if (matches.length === 0) {
-    matches = await yahooSearch(q);
-  }
-
-  if (matches.length === 0) {
-    matches = [{
-      symbol:        q.toUpperCase(),
-      name:          q.toUpperCase(),
-      exchange:      'UNKNOWN',
-      article_count: 0,
-    }];
-  }
-
-  const symbols = matches.map(m => m.symbol);
-  try {
-    const result = await pool.query(
-      `SELECT symbol, COUNT(*) as count
-       FROM articles
-       WHERE symbol = ANY($1)
-         AND published_at >= NOW() - INTERVAL '7 days'
-         AND is_ready = true
-       GROUP BY symbol`,
-      [symbols]
-    );
-    const counts = {};
-    result.rows.forEach(r => { counts[r.symbol] = parseInt(r.count); });
-    matches.forEach(m => { m.article_count = counts[m.symbol] || 0; });
-  } catch (_) {}
-
-  res.json({ success: true, data: matches, popular: false });
-});
-
-router.get('/news', async (req, res) => {
-  const symbol = (req.query.symbol || '').toUpperCase().trim();
-  if (!symbol) return res.status(400).json({ success: false, error: 'Symbol required' });
-
-  console.log(`🔍 /api/search/news hit for: ${symbol}`);
-
-  try {
-    // Check what we already have
-    const existing = await pool.query(
-      `SELECT id, symbol, title, url, source, tag_source_name,
-              published_at, summary_60w, full_text, image_url,
-              tag_feed, tag_category, sentiment_label, sentiment_reason
-       FROM articles
-       WHERE symbol = $1
-         AND published_at >= NOW() - INTERVAL '7 days'
-         AND (is_duplicate IS NULL OR is_duplicate = false)
-         AND is_ready = true
-       ORDER BY published_at DESC
-       LIMIT 30`,
-      [symbol]
-    );
-
-    console.log(`📊 Found ${existing.rows.length} existing articles for ${symbol}`);
-
-    // Always fire the trigger (it has its own 30s dedup guard)
-    triggerPipeline(symbol);
-
-    // If we have fewer than 5, wait up to 15s for the pipeline to deliver more
-    if (existing.rows.length < 5) {
-      console.log(`⏳ Only ${existing.rows.length} articles — waiting for pipeline...`);
-      await waitForArticles(symbol, 5, 15000);
-
-      // Fetch again after waiting
-      const fresh = await pool.query(
-        `SELECT id, symbol, title, url, source, tag_source_name,
-                published_at, summary_60w, full_text, image_url,
-                tag_feed, tag_category, sentiment_label, sentiment_reason
-         FROM articles
-         WHERE symbol = $1
-           AND published_at >= NOW() - INTERVAL '7 days'
-           AND (is_duplicate IS NULL OR is_duplicate = false)
-           AND is_ready = true
-         ORDER BY published_at DESC
-         LIMIT 30`,
-        [symbol]
-      );
-      return res.json({ success: true, data: fresh.rows, fetching: false });
-    }
-
-    res.json({ success: true, data: existing.rows, fetching: false });
-
-  } catch (err) {
-    console.error(`/api/search/news error: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-module.exports = router;

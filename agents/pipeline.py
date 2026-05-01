@@ -1,6 +1,6 @@
 """
 pipeline.py — Master Pipeline
-Fetch → Tag → Dedup → Watchlist → AgentBacklog
+Fetch → Dedup → Watchlist → AgentBacklog → Tag
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -16,7 +16,7 @@ import healthcheck
 BANNER = """
 ╔══════════════════════════════════════════════════════╗
 ║         S T A R K  N E W S  P I P E L I N E         ║
-║  X(fetch) → W(watchlist) → Y(tag) → Z(dedup) → AI   ║
+║  X(fetch) → W(watchlist) → Z(dedup) → AI → Y(tag)   ║
 ╚══════════════════════════════════════════════════════╝"""
 
 _running_symbols: set = set()
@@ -90,16 +90,17 @@ def run_for_symbol(symbol: str):
             print(f"  ⏱  Watchlist fetch:    {time.time()-t:.1f}s  ({fetched} new articles)")
 
             t = time.time()
-            tagged = agentY.run(limit=50)
-            print(f"  ⏱  Tag layer:          {time.time()-t:.1f}s  ({tagged} tagged)")
-
-            t = time.time()
             duped = agentZ.run(hours=48)
             print(f"  ⏱  Dedup layer:        {time.time()-t:.1f}s  ({duped} removed)")
 
             t = time.time()
             backlog_done = agentBacklog.run(pool=SEARCH_POOL, symbol=symbol, limit=50)
             print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
+
+            # Tag AFTER backlog so full_text is available for AI classification
+            t = time.time()
+            tagged = agentY.run(limit=50)
+            print(f"  ⏱  Tag layer:          {time.time()-t:.1f}s  ({tagged} tagged)")
 
             from agentWatchlist import mark_ready
             mark_ready(symbol)
@@ -145,15 +146,7 @@ def run_once():
     except Exception as e:
         print(f"  ⚠  Watchlist layer error: {e}")
 
-    # ── STEP 3: Tag ───────────────────────────────────────────────────────────
-    try:
-        t = time.time()
-        tagged = agentY.run(limit=1200)
-        print(f"  ⏱  Tag layer:          {time.time()-t:.1f}s  ({tagged} tagged)")
-    except Exception as e:
-        print(f"  ⚠  Tag layer error: {e}")
-
-    # ── STEP 4: Dedup ─────────────────────────────────────────────────────────
+    # ── STEP 3: Dedup ─────────────────────────────────────────────────────────
     try:
         t = time.time()
         duped = agentZ.run(hours=48)
@@ -167,13 +160,21 @@ def run_once():
         _search_running.wait()
         print(f"  ▶️  Search done — resuming main backlog")
 
-    # ── STEP 5: Backlog ───────────────────────────────────────────────────────
+    # ── STEP 4: Backlog (scrapes full_text) ───────────────────────────────────
     try:
         t = time.time()
         backlog_done = agentBacklog.run(limit=1200)
         print(f"  ⏱  Backlog layer:      {time.time()-t:.1f}s  ({backlog_done} processed)")
     except Exception as e:
         print(f"  ⚠  Backlog layer error: {e}")
+
+    # ── STEP 5: Tag AFTER backlog so full_text is available ───────────────────
+    try:
+        t = time.time()
+        tagged = agentY.run(limit=1200)
+        print(f"  ⏱  Tag layer:          {time.time()-t:.1f}s  ({tagged} tagged)")
+    except Exception as e:
+        print(f"  ⚠  Tag layer error: {e}")
 
     print(f"\n✅ Pipeline complete in {time.time()-t_total:.1f}s\n")
 

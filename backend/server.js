@@ -12,6 +12,7 @@ app.use('/api/news',      require('./routes/news'));
 app.use('/api/auth',      require('./routes/auth'));
 app.use('/api/watchlist', require('./routes/watchlist'));
 app.use('/api/search',    require('./routes/search'));
+app.use('/api/price',     require('./routes/price')); 
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
