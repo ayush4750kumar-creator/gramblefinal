@@ -13,6 +13,7 @@ const API          = 'https://gramblefinal-production.up.railway.app/api/news';
 const SEARCH_API   = 'https://gramblefinal-production.up.railway.app/api/search';
 const PAGE_SIZE    = 200;
 const AUTO_REFRESH = 60 * 1000; // 60s
+const PRICE_API    = 'https://gramblefinal-production.up.railway.app/api/price';
 
 const EXCHANGE_TABS = [
   { key:'NSE',    label:'NSE',    color:'#7c3aed' },
@@ -114,7 +115,7 @@ function Spinner({ size=36 }) {
   );
 }
 
-function MobileNewsCard({ a, watchlist, setView, onWatchlistClick }) {
+function MobileNewsCard({ a, price, watchlist, setView, onWatchlistClick }) {
   const s = SENTIMENT[a.sentiment_label] || null;
   const cleanTitle   = (a.title||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
   const cleanSummary = (a.summary_60w||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
@@ -131,6 +132,7 @@ function MobileNewsCard({ a, watchlist, setView, onWatchlistClick }) {
           <div>{a.symbol||'Global News'}</div>
         </div>
         {s && <div style={{ position:'absolute', top:10, left:10, background:s.color, color:'#fff', fontSize:10, fontWeight:700, padding:'4px 10px', borderRadius:6 }}>{s.arrow} {s.label.toUpperCase()}</div>}
+        {price && <div style={{ position:'absolute', bottom:10, right:10, background:'rgba(0,0,0,0.65)', color:'#fff', fontSize:10, fontWeight:700, padding:'4px 8px', borderRadius:6, fontFamily:'monospace', lineHeight:1.4, display:'flex', flexDirection:'column', alignItems:'flex-end' }}><span>{price.formatted}</span><span style={{ color: price.isUp ? '#4ade80' : '#f87171' }}>{price.isUp ? '+' : ''}{price.changePct.toFixed(2)}%</span></div>}
         {isCompany && <button onClick={()=>onWatchlistClick(a.symbol)} style={{ position:'absolute', top:10, right:10, background: isWatchlisted?'#2563eb':'rgba(255,255,255,0.92)', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700, color: isWatchlisted?'#fff':'#374151', cursor:'pointer' }}>{isWatchlisted?'✓ Watchlisted':'+ Watchlist'}</button>}
       </div>
       <div style={{ padding:'12px 14px' }}>
@@ -151,7 +153,7 @@ function MobileNewsCard({ a, watchlist, setView, onWatchlistClick }) {
   );
 }
 
-function NewsCard({ a, onWatchlist, watchlist, setView, onWatchlistClick }) {
+function NewsCard({ a, price, onWatchlist, watchlist, setView, onWatchlistClick }) {
   const s = SENTIMENT[a.sentiment_label] || null;
   const cleanTitle   = (a.title||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
   const cleanSummary = (a.summary_60w||'').replace(/^\[(NSE|BSE|SEC)\]\s*/i,'');
@@ -164,6 +166,7 @@ function NewsCard({ a, onWatchlist, watchlist, setView, onWatchlistClick }) {
       <div style={{ width:'100%', height:180, position:'relative', overflow:'hidden' }}>
         <img src={a.image_url||PLACEHOLDER} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} onError={e=>{ e.target.src=PLACEHOLDER; }} />
         {s && <div style={{ position:'absolute', top:12, left:12, background:s.color, color:'#fff', fontSize:11, fontWeight:700, padding:'4px 10px', borderRadius:6 }}>{s.arrow} {s.label.toUpperCase()}</div>}
+        {price && <div style={{ position:'absolute', bottom:10, right:10, background:'rgba(0,0,0,0.65)', color:'#fff', fontSize:10, fontWeight:700, padding:'4px 8px', borderRadius:6, fontFamily:'monospace', lineHeight:1.4, display:'flex', flexDirection:'column', alignItems:'flex-end' }}><span>{price.formatted}</span><span style={{ color: price.isUp ? '#4ade80' : '#f87171' }}>{price.isUp ? '+' : ''}{price.changePct.toFixed(2)}%</span></div>}
         {isCompany && <button onClick={()=>onWatchlistClick(a.symbol)} style={{ position:'absolute', top:12, right:12, background: isWatchlisted?'#2563eb':'rgba(255,255,255,0.92)', border:'1px solid #e5e7eb', borderRadius:6, padding:'4px 10px', fontSize:11, fontWeight:600, color: isWatchlisted?'#fff':'#374151', cursor:'pointer', transition:'all 0.2s' }}>{isWatchlisted?'✓ Watchlisted':'+ Watchlist'}</button>}
       </div>
       <div style={{ padding:'14px 16px' }}>
@@ -218,6 +221,37 @@ function MobileHeader({ feedTitle, articleCount, isStock, view, setView, watchli
       </div>
     </div>
   );
+}
+
+
+function useFeedPrices(articles) {
+  const [prices, setPrices] = useState({});
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    const symbols = [...new Set(
+      articles
+        .map(a => a.symbol)
+        .filter(s => s && s !== 'MARKET')
+    )].slice(0, 30);
+
+    if (!symbols.length) return;
+
+    const fetch_ = async () => {
+      try {
+        const res = await fetch(`${PRICE_API}?symbols=${symbols.join(',')}`);
+        const data = await res.json();
+        if (data.success) setPrices(data.data);
+      } catch (_) {}
+    };
+
+    fetch_();
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(fetch_, 30000);
+    return () => clearInterval(timerRef.current);
+  }, [articles.map(a => a.symbol).join(',')]);
+
+  return prices;
 }
 
 export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
@@ -415,6 +449,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   const stockFiltered   = isStock ? articles.filter(a => a.symbol === view.symbol) : articles;
   const displayArticles = isExchange ? filteredExchange : stockFiltered;
   const inWatchlist     = isStock && watchlist?.find(w => w.symbol === view.symbol);
+  const feedPrices      = useFeedPrices(displayArticles);
   const showFetching    = isStock && (loading || (fetching && !displayArticles.length));
   const newPillCount    = isExchange ? 0 : newArticles.length;
 
@@ -443,7 +478,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
           {showFetching && <FetchingScreen symbol={view.symbol} />}
           {loading && !isStock && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:80, gap:12 }}><Spinner /><div style={{ fontSize:13, color:'#9ca3af' }}>Loading news...</div></div>}
           {!showFetching && !loading && !displayArticles.length && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:80, gap:12 }}><div style={{ fontSize:44 }}>📭</div><div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news found</div></div>}
-          {!showFetching && displayArticles.map(a => <MobileNewsCard key={a.id} a={a} watchlist={watchlist} setView={setView} onWatchlistClick={handleWatchlistClick} />)}
+          {!showFetching && displayArticles.map(a => <MobileNewsCard key={a.id} a={a} price={feedPrices[a.symbol]} watchlist={watchlist} setView={setView} onWatchlistClick={handleWatchlistClick} />)}
           {loaderDiv}
         </div>
       </div>
@@ -474,7 +509,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
         {showFetching && <FetchingScreen symbol={view.symbol} />}
         {loading && !isStock && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}><Spinner /><div style={{ fontSize:13, color:'#9ca3af' }}>Loading news...</div></div>}
         {!showFetching && !loading && !displayArticles.length && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}><div style={{ fontSize:44 }}>📭</div><div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news found</div></div>}
-        {!showFetching && displayArticles.map(a => <NewsCard key={a.id} a={a} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} onWatchlistClick={handleWatchlistClick} />)}
+        {!showFetching && displayArticles.map(a => <NewsCard key={a.id} a={a} price={feedPrices[a.symbol]} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} onWatchlistClick={handleWatchlistClick} />)}
         {loaderDiv}
       </div>
     </main>
