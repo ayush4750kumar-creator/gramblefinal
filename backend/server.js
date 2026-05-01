@@ -4,7 +4,14 @@ const cors    = require('cors');
 const { initDB, pool } = require('./config/database');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://gramble.in',
+    'https://www.gramble.in',
+    'http://localhost:3000',
+  ],
+  credentials: true,
+}));
 app.use(express.json());
 
 // ── Routes ───────────────────────────────────────────────────────────────────
