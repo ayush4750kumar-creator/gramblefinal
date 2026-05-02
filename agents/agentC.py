@@ -5,7 +5,7 @@ Sources: RSS feeds + NSE/BSE filings + 4 News APIs
 import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, BSE_HEADERS, nse_session, safe_json, is_financial
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, BSE_HEADERS, nse_session, bse_session, safe_json, is_financial
 from db_utils import save_articles
 from news_apis import fetch_all_apis
 from datetime import datetime
@@ -114,8 +114,9 @@ def fetch_bse_announcements():
             f"https://api.bseindia.com/BseIndiaAPI/api/AnnGetAnnouncementList/w"
             f"?strCat=-1&strPrevDate={today}&strScrip=&strSearch=P&strToDate={today}&strType=C&subcategory=-1"
         )
-        # BSE_HEADERS includes Referer + Origin which BSE requires for JSON response
-        resp = requests.get(url, headers=BSE_HEADERS, timeout=8)
+        # bse_session() warms up cookies — plain requests returns HTML auth wall
+        session = bse_session()
+        resp = session.get(url, timeout=8)
         data = safe_json(resp, "BSE announcements")
         if not data:
             return articles

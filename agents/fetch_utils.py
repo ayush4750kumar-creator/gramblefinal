@@ -119,14 +119,32 @@ def nse_session() -> requests.Session:
         "Referer": "https://www.nseindia.com/",
     })
     try:
-        # Warm up: hit the homepage to get session cookies
         session.get("https://www.nseindia.com", timeout=8)
         time.sleep(0.5)
-        # Second hit to the market data page seeds more cookies
         session.get("https://www.nseindia.com/market-data/live-equity-market", timeout=8)
         time.sleep(0.3)
     except Exception:
-        pass  # Carry on with whatever cookies we got
+        pass
+    return session
+
+def bse_session() -> requests.Session:
+    """
+    Return a requests.Session with BSE cookies set.
+    BSE returns an HTML auth wall instead of JSON without a valid session.
+    """
+    session = requests.Session()
+    session.headers.update({
+        **HEADERS,
+        "Referer": "https://www.bseindia.com/",
+        "Origin":  "https://www.bseindia.com",
+    })
+    try:
+        session.get("https://www.bseindia.com", timeout=8)
+        time.sleep(0.4)
+        session.get("https://www.bseindia.com/corporates/ann.html", timeout=8)
+        time.sleep(0.2)
+    except Exception:
+        pass
     return session
 
 # BSE API requires these specific headers to return JSON instead of empty body
@@ -139,9 +157,10 @@ BSE_HEADERS = {
 def safe_json(resp: requests.Response, label: str):
     """
     Parse JSON from a response safely.
-    Prints a clear error and returns None if the body is empty or not JSON.
-    This prevents the 'Expecting value: line 1 column 1' crash.
+    Handles: empty body, HTML auth walls, extra/concatenated JSON data.
+    Prevents all 'Expecting value' and 'Extra data' crashes.
     """
+    import json
     raw = resp.text.strip()
     if not raw:
         print(f"  ⚠  {label}: empty response body (HTTP {resp.status_code})")
@@ -150,8 +169,16 @@ def safe_json(resp: requests.Response, label: str):
         print(f"  ⚠  {label}: got HTML instead of JSON (HTTP {resp.status_code}) — possible auth wall")
         return None
     try:
-        return resp.json()
-    except Exception as e:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        # Handle concatenated JSON objects e.g. }{  or ][
+        # Try extracting just the first complete object/array
+        try:
+            decoder = json.JSONDecoder()
+            obj, _ = decoder.raw_decode(raw)
+            return obj
+        except Exception:
+            pass
         print(f"  ⚠  {label}: JSON parse error — {e}")
         return None
 

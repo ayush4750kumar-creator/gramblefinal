@@ -6,7 +6,7 @@ from agentB import fetch_google_news
 import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, BSE_HEADERS, nse_session, safe_json, is_financial
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, BSE_HEADERS, nse_session, bse_session, safe_json, is_financial
 from db_utils import save_articles
 from news_apis import fetch_all_apis
 from datetime import datetime, timedelta

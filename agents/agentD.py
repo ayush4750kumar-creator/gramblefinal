@@ -5,7 +5,7 @@ Sources: BSE/NSE/SEC filings + 4 News APIs
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, HEADERS, BSE_HEADERS, nse_session, safe_json, COMPANY_MAP
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, HEADERS, BSE_HEADERS, nse_session, bse_session, safe_json, COMPANY_MAP
 from db_utils import save_articles
 from news_apis import fetch_all_apis
 from datetime import datetime, timedelta
@@ -65,8 +65,9 @@ def fetch_bse_category(cat_name, cat_code):
             f"?strCat={cat_code}&strPrevDate={week_ago}&strScrip=&strSearch=P"
             f"&strToDate={today}&strType=C&subcategory=-1"
         )
-        # BSE requires Referer + Origin headers or returns empty body
-        resp = requests.get(url, headers=BSE_HEADERS, timeout=8)
+        # bse_session() warms up cookies — plain requests returns HTML auth wall
+        session = bse_session()
+        resp = session.get(url, headers=BSE_HEADERS, timeout=8)
         data = safe_json(resp, f"BSE {cat_name}")
         if not data:
             return articles
