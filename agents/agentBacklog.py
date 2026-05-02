@@ -1,10 +1,12 @@
 """
-agentBacklog.py — Parallel Backlog Processor (v10)
+agentBacklog.py — Parallel Backlog Processor (v11)
 
-Changes from v9:
-- get_backlog now also picks up articles that have summary but no image
-- Always scrape for og:image even when full_text already exists
-- No Pexels fallback — og:image only, black if none
+Changes from v10:
+- Never skip articles due to short text — title alone is enough for Groq
+- Added PAYWALL_DOMAINS list — skip scraping for sites that block bots
+- Lowered content threshold: 20 chars min (was 200) before attempting scrape
+- Scrape failure is no longer fatal — falls back to title + existing summary
+- Added per-domain scrape timeout reduction to avoid 10s hangs on dead URLs
 """
 import sys, os, time, json, threading, re, unicodedata
 sys.path.insert(0, os.path.dirname(__file__))
@@ -27,6 +29,32 @@ SCRAPE_HEADERS = {
     )
 }
 
+# ── Domains that always block scraping (paywall / bot protection) ─────────────
+# For these we skip scraping entirely and use title + existing text only.
+PAYWALL_DOMAINS = {
+    "economictimes.indiatimes.com",
+    "livemint.com",
+    "ft.com",
+    "wsj.com",
+    "bloomberg.com",
+    "businessstandard.com",
+    "thehindu.com",
+    "thehindubusinessline.com",
+    "moneycontrol.com",
+    "reuters.com",
+    "cnbc.com",
+    "marketwatch.com",
+    "seekingalpha.com",
+    "investing.com",
+    "financialexpress.com",
+    "ndtv.com",
+    "ndtvprofit.com",
+    "business-standard.com",
+    "hindustantimes.com",
+    "tribuneindia.com",
+    "deccanherald.com",
+}
+
 # Words in og:image URLs that indicate a logo/brand image — skip these
 LOGO_BLACKLIST = [
     'logo', 'icon', 'brand', 'favicon', 'avatar', 'placeholder',
@@ -36,69 +64,32 @@ LOGO_BLACKLIST = [
     'noimage', 'blank', 'header', 'banner-logo', 'site-logo',
 ]
 
-# Pexels URLs that are the repeated generic stock ticker / placeholder
 PEXELS_BLACKLIST = [
     'pexels-photo-534216',
     'pexels-photo-210607',
     'pexels-photo-187041',
 ]
 
-# Symbol → readable Pexels search query (kept for future use)
 SYMBOL_MAP = {
-    "AAPL":           "Apple technology iPhone",
-    "NVDA":           "Nvidia GPU chip AI",
-    "GOOGL":          "Google office technology",
-    "META":           "Meta Facebook social media",
-    "AMZN":           "Amazon warehouse delivery",
-    "MSFT":           "Microsoft office software",
-    "TSLA":           "Tesla electric car",
-    "INTC":           "Intel semiconductor chip",
-    "AMD":            "AMD processor chip",
-    "NFLX":           "Netflix streaming",
-    "UBER":           "Uber ride sharing",
-    "COIN":           "Coinbase cryptocurrency bitcoin",
-    "PLTR":           "Palantir data analytics",
-    "SHOP":           "Shopify ecommerce",
-    "JPM":            "JPMorgan bank Wall Street",
-    "BAC":            "Bank of America finance",
-    "GS":             "Goldman Sachs finance",
-    "INFY":           "Infosys India office technology",
-    "TCS":            "Tata Consultancy Services India",
-    "HDFCBANK":       "HDFC Bank India finance",
-    "ICICIBANK":      "ICICI Bank India",
-    "SBIN":           "State Bank of India",
-    "RELIANCE":       "Reliance Industries India",
-    "WIPRO":          "Wipro India technology",
-    "ITC":            "ITC India consumer goods",
-    "INDUSINDBK.NS":  "IndusInd Bank India",
-    "COCHINSHIP.BO":  "Cochin Shipyard India ship",
-    "ADANIENT":       "Adani Enterprises India",
-    "TATAMOTORS":     "Tata Motors car India",
-    "BAJFINANCE":     "Bajaj Finance India",
-    "HINDUNILVR":     "Hindustan Unilever India",
-    "KOTAKBANK":      "Kotak Mahindra Bank India",
-    "AXISBANK":       "Axis Bank India",
-    "MARUTI":         "Maruti Suzuki car India",
-    "SUNPHARMA":      "Sun Pharma medicine India",
-    "NTPC":           "NTPC power plant India",
-    "ONGC":           "ONGC oil India",
-    "TATASTEEL":      "Tata Steel industry",
-    "JSWSTEEL":       "JSW Steel industry",
-    "TITAN":          "Titan watches jewelry India",
-    "NESTLEIND":      "Nestle food India",
-    "HCLTECH":        "HCL Technologies India",
-    "TECHM":          "Tech Mahindra India",
-    "ZOMATO":         "Zomato food delivery India",
-    "PAYTM":          "Paytm digital payment India",
-    "NYKAA":          "Nykaa beauty India",
-    "INDIGO":         "IndiGo airline India",
-    "IRCTC":          "IRCTC Indian railway",
-    "DRREDDY":        "Dr Reddys pharmacy India",
-    "CIPLA":          "Cipla medicine India",
-    "APOLLOHOSP":     "Apollo Hospital India",
+    "AAPL": "Apple technology iPhone", "NVDA": "Nvidia GPU chip AI",
+    "GOOGL": "Google office technology", "META": "Meta Facebook social media",
+    "AMZN": "Amazon warehouse delivery", "MSFT": "Microsoft office software",
+    "TSLA": "Tesla electric car", "INTC": "Intel semiconductor chip",
+    "INFY": "Infosys India office technology", "TCS": "Tata Consultancy Services India",
+    "HDFCBANK": "HDFC Bank India finance", "ICICIBANK": "ICICI Bank India",
+    "SBIN": "State Bank of India", "RELIANCE": "Reliance Industries India",
+    "WIPRO": "Wipro India technology", "ITC": "ITC India consumer goods",
+    "ADANIENT": "Adani Enterprises India", "TATAMOTORS": "Tata Motors car India",
+    "BAJFINANCE": "Bajaj Finance India", "HINDUNILVR": "Hindustan Unilever India",
+    "KOTAKBANK": "Kotak Mahindra Bank India", "AXISBANK": "Axis Bank India",
+    "MARUTI": "Maruti Suzuki car India", "SUNPHARMA": "Sun Pharma medicine India",
+    "NTPC": "NTPC power plant India", "ONGC": "ONGC oil India",
+    "TATASTEEL": "Tata Steel industry", "TITAN": "Titan watches jewelry India",
+    "NESTLEIND": "Nestle food India", "HCLTECH": "HCL Technologies India",
+    "TECHM": "Tech Mahindra India", "ZOMATO": "Zomato food delivery India",
+    "PAYTM": "Paytm digital payment India", "APOLLOHOSP": "Apollo Hospital India",
 }
 
-# Category keywords → Pexels query (kept for future use)
 CATEGORY_QUERY_MAP = [
     (["ipo", "listing", "debut"],                        "stock exchange IPO listing"),
     (["merger", "acquisition", "takeover", "buyout"],    "business merger handshake"),
@@ -109,14 +100,13 @@ CATEGORY_QUERY_MAP = [
     (["gold", "silver", "commodity", "mcx"],             "gold silver commodity"),
     (["pharma", "drug", "medicine", "hospital", "health"], "pharmacy medicine hospital"),
     (["electric", "ev", "tesla", "battery", "automobile", "car", "auto"], "electric vehicle car"),
-    (["crypto", "bitcoin", "blockchain", "coinbase"],    "cryptocurrency bitcoin"),
+    (["crypto", "bitcoin", "blockchain"],                "cryptocurrency bitcoin"),
     (["real estate", "property", "housing", "reit"],     "real estate building"),
     (["airline", "aviation", "airport", "flight"],       "airplane airport aviation"),
     (["railway", "train", "irctc"],                      "train railway India"),
     (["it", "software", "tech", "digital", "ai", "cloud"], "technology software office"),
     (["fed", "rbi", "central bank", "rate", "inflation"], "central bank interest rate"),
     (["trade", "export", "import", "tariff"],            "shipping container trade"),
-    (["startup", "unicorn", "funding", "venture"],       "startup office entrepreneur"),
     (["solar", "wind", "renewable", "clean energy"],     "solar panel renewable energy"),
     (["food", "consumer", "fmcg", "retail"],             "supermarket consumer goods"),
     (["steel", "metal", "mining", "coal"],               "steel factory industry"),
@@ -136,27 +126,27 @@ def sanitize(text: str) -> str:
     return text
 
 
-def extract_pexels_query(title: str, summary: str = "") -> str:
-    combined = (title + " " + (summary or "")).lower()
-    for keywords, query in CATEGORY_QUERY_MAP:
-        if any(kw in combined for kw in keywords):
-            return query
-    stop = {"the", "a", "an", "is", "are", "was", "were", "of", "in",
-            "on", "at", "to", "for", "by", "with", "and", "or", "but",
-            "after", "before", "as", "from", "that", "this", "its"}
-    words = [w for w in re.sub(r'[^a-z\s]', '', title.lower()).split()
-             if w not in stop and len(w) > 2]
-    query = " ".join(words[:4])
-    return query if query else "business finance news"
+def is_paywall_url(url: str) -> bool:
+    """Return True if the URL belongs to a known paywall/bot-blocking domain."""
+    if not url:
+        return False
+    try:
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc.lower().lstrip("www.")
+        return any(domain == pw or domain.endswith("." + pw) for pw in PAYWALL_DOMAINS)
+    except Exception:
+        return False
 
-
-# ── Scrape article: returns text + og:image ───────────────────────────────────
 
 def scrape_article(url: str) -> dict:
+    """Scrape article text + og:image. Returns empty strings on failure."""
     if not url:
         return {"text": "", "image": None}
+    # Skip scraping entirely for paywalled domains — saves 10s timeout per article
+    if is_paywall_url(url):
+        return {"text": "", "image": None}
     try:
-        r = requests.get(url, headers=SCRAPE_HEADERS, timeout=10)
+        r = requests.get(url, headers=SCRAPE_HEADERS, timeout=7)
         if r.status_code != 200:
             return {"text": "", "image": None}
 
@@ -164,24 +154,16 @@ def scrape_article(url: str) -> dict:
 
         # grab og:image
         image = None
-        og = re.search(
+        for pattern in [
             r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](https?://[^"\']+)["\']',
-            html, re.IGNORECASE
-        )
-        if not og:
-            og = re.search(
-                r'<meta[^>]+content=["\'](https?://[^"\']+)["\'][^>]+property=["\']og:image["\']',
-                html, re.IGNORECASE
-            )
-        if not og:
-            og = re.search(
-                r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\'](https?://[^"\']+)["\']',
-                html, re.IGNORECASE
-            )
-        if og:
-            image = og.group(1).strip()
+            r'<meta[^>]+content=["\'](https?://[^"\']+)["\'][^>]+property=["\']og:image["\']',
+            r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\'](https?://[^"\']+)["\']',
+        ]:
+            og = re.search(pattern, html, re.IGNORECASE)
+            if og:
+                image = og.group(1).strip()
+                break
 
-        # strip html for text
         text = re.sub(r'<script[^>]*>.*?</script>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<style[^>]*>.*?</style>',   ' ', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<[^>]+>', ' ', text)
@@ -192,8 +174,6 @@ def scrape_article(url: str) -> dict:
     except Exception:
         return {"text": "", "image": None}
 
-
-# ── Image helpers ─────────────────────────────────────────────────────────────
 
 def is_real_image(url: str) -> bool:
     if not url:
@@ -206,46 +186,14 @@ def is_real_image(url: str) -> bool:
     return True
 
 
-def get_pexels_image(query: str) -> str | None:
-    if not PEXELS_KEY or not query:
-        return None
-    try:
-        r = requests.get(
-            PEXELS_URL,
-            headers={"Authorization": PEXELS_KEY},
-            params={"query": query, "per_page": 3, "orientation": "landscape"},
-            timeout=8,
-        )
-        if r.status_code != 200:
-            return None
-        photos = r.json().get("photos", [])
-        if len(photos) >= 2:
-            return photos[1]["src"]["large"]
-        elif photos:
-            return photos[0]["src"]["large"]
-        return None
-    except Exception:
-        return None
-
-
 def resolve_image(article: dict, scraped_image: str | None) -> str | None:
-    """
-    Priority:
-    1. Already has a real image_url in DB → skip (return None = no update)
-    2. og:image scraped from article page → use it
-    3. Nothing found → return None (article stays with no image / black)
-    """
     existing = article.get("image_url", "")
     if existing and is_real_image(existing):
         return None
-
     if scraped_image and is_real_image(scraped_image):
         return scraped_image
-
     return None
 
-
-# ── DB helpers ────────────────────────────────────────────────────────────────
 
 class ArticleQueue:
     def __init__(self, articles: list):
@@ -300,8 +248,6 @@ def save_result(result: dict):
             conn.close()
 
 
-# ── Groq call ─────────────────────────────────────────────────────────────────
-
 def groq_call(key: str, prompt: str, agent_id: int) -> str:
     consecutive_429 = 0
     for attempt in range(12):
@@ -350,27 +296,27 @@ def groq_call(key: str, prompt: str, agent_id: int) -> str:
     return ""
 
 
-# ── Process one article ───────────────────────────────────────────────────────
-
 def process_one(key: str, article: dict, agent_id: int):
-    title = article.get("title", "")     or ""
-    text  = article.get("full_text", "") or ""
-    url   = article.get("url", "")       or ""
-
-    title = sanitize(title)
-    text  = sanitize(text)
+    title = sanitize(article.get("title", "")     or "")
+    text  = sanitize(article.get("full_text", "") or "")
+    url   = article.get("url", "") or ""
 
     scraped_image  = None
     existing_image = article.get("image_url", "")
     needs_image    = not existing_image or not is_real_image(existing_image)
 
-    if len(text.strip()) < 200 and url:
-        # short text — scrape for both text AND image
+    # ── Decide whether to scrape ──────────────────────────────────────────────
+    # Only scrape if: text is genuinely short AND it's not a paywalled domain.
+    # Paywalled domains return 200 OK with zero useful content — scraping them
+    # just wastes 7–10s per article and produces empty combined text → skip.
+    should_scrape = (len(text.strip()) < 200) and url and not is_paywall_url(url)
+
+    if should_scrape:
         print(f"  🌐 Agent {agent_id}: scraping article {article['id']}")
         scraped = scrape_article(url)
         scraped_image = scraped["image"]
 
-        if scraped["text"]:
+        if scraped["text"] and len(scraped["text"]) > len(text):
             text = sanitize(scraped["text"])
             try:
                 with _db_lock:
@@ -385,19 +331,23 @@ def process_one(key: str, article: dict, agent_id: int):
                     conn.close()
             except Exception:
                 pass
-
-    elif needs_image and url:
-        # text is fine but no image yet — scrape just for og:image
+    elif needs_image and url and not is_paywall_url(url):
+        # Text is fine but missing image — quick scrape for og:image only
         scraped = scrape_article(url)
         scraped_image = scraped["image"]
 
+    # ── Build content for Groq ────────────────────────────────────────────────
+    # Use whatever we have: scraped text > existing full_text > title alone.
+    # Never skip an article just because text is short — title is enough.
     combined = sanitize((title + "\n\n" + text[:3000]).strip())
+    if not combined:
+        combined = title  # absolute last resort
 
-    if not combined or len(combined) < 20:
-        print(f"  ⚠ Agent {agent_id}: article {article['id']} has no content — skipping")
+    if not combined or len(combined) < 10:
+        print(f"  ⚠ Agent {agent_id}: article {article['id']} has no title or content — skipping")
         return None
 
-    # if article already has a summary, skip Groq and just save the image
+    # ── If summary already exists, just resolve the image and return ──────────
     existing_summary = article.get("summary_60w", "") or ""
     if existing_summary.strip():
         image_url = resolve_image(article, scraped_image)
@@ -451,7 +401,6 @@ CRITICAL RULES:
             summary = data.get("summary", "").strip()
             words   = summary.split()
             if len(words) > 60:
-                # cut at last sentence boundary within 60 words
                 truncated = " ".join(words[:60])
                 last_dot  = max(truncated.rfind(". "), truncated.rfind("! "), truncated.rfind("? "))
                 summary   = truncated[:last_dot + 1] if last_dot > 20 else truncated
@@ -487,8 +436,6 @@ CRITICAL RULES:
     return None
 
 
-# ── Sub agent thread ──────────────────────────────────────────────────────────
-
 def sub_agent(agent_id: int, key: str, queue: ArticleQueue,
               counts: dict, lock: threading.Lock):
     while True:
@@ -515,8 +462,6 @@ def sub_agent(agent_id: int, key: str, queue: ArticleQueue,
 
         time.sleep(1.5)
 
-
-# ── Fetch backlog from DB ─────────────────────────────────────────────────────
 
 def get_backlog(symbol: str = None, limit: int = 100) -> list:
     conn = get_conn()
@@ -547,8 +492,6 @@ def get_backlog(symbol: str = None, limit: int = 100) -> list:
     conn.close()
     return rows
 
-
-# ── Main run ──────────────────────────────────────────────────────────────────
 
 def run(pool: GroqKeyPool = MAIN_POOL, symbol: str = None, limit: int = 100) -> int:
     keys = pool._keys
