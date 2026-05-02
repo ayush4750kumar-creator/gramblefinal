@@ -464,14 +464,20 @@ def sub_agent(agent_id: int, key: str, queue: ArticleQueue,
 
 
 def get_backlog(symbol: str = None, limit: int = 100) -> list:
+    """
+    Only fetch articles that genuinely need processing:
+    - Missing summary (never processed by Groq yet)
+    - NOT already is_ready=true (don't re-queue completed articles just for image)
+    Image-only re-queuing caused 295 false failures per run — removed.
+    """
     conn = get_conn()
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     if symbol:
         cur.execute("""
             SELECT id, title, full_text, url, image_url, symbol, summary_60w,
                    sentiment_label, sentiment_reason FROM articles
-            WHERE (summary_60w IS NULL OR summary_60w = ''
-                   OR image_url IS NULL OR image_url = '')
+            WHERE (summary_60w IS NULL OR summary_60w = '')
+            AND (is_ready IS NULL OR is_ready = false)
             AND (is_duplicate IS NULL OR is_duplicate = false)
             AND created_at > NOW() - INTERVAL '6 days'
             AND symbol = %s
@@ -481,8 +487,8 @@ def get_backlog(symbol: str = None, limit: int = 100) -> list:
         cur.execute("""
             SELECT id, title, full_text, url, image_url, symbol, summary_60w,
                    sentiment_label, sentiment_reason FROM articles
-            WHERE (summary_60w IS NULL OR summary_60w = ''
-                   OR image_url IS NULL OR image_url = '')
+            WHERE (summary_60w IS NULL OR summary_60w = '')
+            AND (is_ready IS NULL OR is_ready = false)
             AND (is_duplicate IS NULL OR is_duplicate = false)
             AND created_at > NOW() - INTERVAL '6 days'
             ORDER BY created_at DESC LIMIT %s
