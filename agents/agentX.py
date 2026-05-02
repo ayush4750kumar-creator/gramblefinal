@@ -1,6 +1,6 @@
 """
 agentX.py — Orchestrator
-Runs Agents A–G concurrently, collects results, reports totals.
+Runs Agents A–H concurrently, collects results, reports totals.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -9,7 +9,7 @@ import concurrent.futures, time
 from datetime import datetime
 
 import agentA, agentB, agentC, agentD, agentE, agentF, agentG, agentH
-from news_apis import reset_cache  # ← reset API cache at start of each run
+from news_apis import reset_cache, fetch_all_apis
 
 AGENTS = [
     ("A — After-Market Company News",    agentA.run),
@@ -22,15 +22,39 @@ AGENTS = [
     ("H — Top Company News",             agentH.run),
 ]
 
-def run(parallel: bool = True) -> int:
-    # ── Reset API cache so each pipeline run gets fresh data ─────────────────
-    # Without this, cached empty results from rate-limited APIs persist forever
-    # and all agents get stale data on every subsequent run.
-    reset_cache()
+# All queries agents will call — pre-fetched once before parallel execution
+COMMON_QUERIES = [
+    "India stock market company earnings results",
+    "India stock market pre-market Nifty Sensex global cues",
+    "India stock BSE NSE earnings after hours results",
+    "BSE NSE official filing earnings dividend results India",
+    "RBI Federal Reserve interest rate India economy global policy",
+    "NASDAQ NYSE Wall Street stock market exchange finance",
+    "Nifty Sensex intraday trading session stock market today India",
+    "Apple Microsoft Nvidia Google Amazon stock earnings",
+    "India Reliance TCS HDFC Infosys stock news today",
+    "Bitcoin cryptocurrency market today",
+]
 
-    print("\n" + "═" * 55)
-    print(f"🤖 AgentX — Orchestrator  [{datetime.now().strftime('%d %b %Y, %H:%M:%S')}]")
-    print("═" * 55)
+def _prewarm_api_cache():
+    """
+    Fetch all API queries ONCE before agents start in parallel threads.
+    Agents run concurrently so they all miss the cache simultaneously.
+    Pre-warming here means every agent call hits cache — 0 quota usage.
+    """
+    print("  🔄 Pre-warming News API cache...")
+    for q in COMMON_QUERIES:
+        fetch_all_apis(q, agent_source="X")
+    print("  ✅ Cache ready — agents will use cached results\n")
+
+
+def run(parallel: bool = True) -> int:
+    reset_cache()         # clear stale results from previous run
+    _prewarm_api_cache()  # populate cache before agents start
+
+    print("\n" + "=" * 55)
+    print(f"AgentX -- Orchestrator  [{datetime.now().strftime('%d %b %Y, %H:%M:%S')}]")
+    print("=" * 55)
     t0 = time.time()
     total = 0
 
@@ -43,23 +67,24 @@ def run(parallel: bool = True) -> int:
                     saved = fut.result()
                     total += saved
                 except Exception as e:
-                    print(f"  ✗ Agent {name} crashed: {e}")
+                    print(f"  Agent {name} crashed: {e}")
     else:
         for name, fn in AGENTS:
             try:
                 saved = fn()
                 total += saved
             except Exception as e:
-                print(f"  ✗ Agent {name} crashed: {e}")
+                print(f"  Agent {name} crashed: {e}")
 
     elapsed = time.time() - t0
-    print(f"\n✅ AgentX complete — {total} new articles saved in {elapsed:.1f}s")
-    print("═" * 55)
+    print(f"\nAgentX complete -- {total} new articles saved in {elapsed:.1f}s")
+    print("=" * 55)
     return total
+
 
 if __name__ == '__main__':
     import argparse
     p = argparse.ArgumentParser()
-    p.add_argument('--sequential', action='store_true', help='Run agents one by one')
+    p.add_argument('--sequential', action='store_true')
     args = p.parse_args()
     run(parallel=not args.sequential)
