@@ -5,8 +5,8 @@ import feedparser, requests, re, time
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 
-# ── Default fetch window — only articles published in last 1 hour ─────────────
-FETCH_WINDOW_HOURS = 1
+# ── Default fetch window — only articles published in last 6 hours ─────────────
+FETCH_WINDOW_HOURS = 6
 
 def is_recent(pub, hours: int = None) -> bool:
     """Returns True only if article was published within `hours` hours.

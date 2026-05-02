@@ -1,6 +1,7 @@
 """
 agentH.py — Top Company News Fetcher (Parallel)
-Sources: Google News + Yahoo Finance + Bing + 4 News APIs
+Sources: Google News + Bing + 4 News APIs
+(Yahoo Finance per-stock RSS removed — causes 429 on every run)
 """
 import sys, os, urllib.parse
 sys.path.insert(0, os.path.dirname(__file__))
@@ -43,7 +44,7 @@ def fetch_google_news(symbol, query, lang="en-IN", country="IN"):
     try:
         q   = urllib.parse.quote(query)
         url = f"https://news.google.com/rss/search?q={q}&hl={lang}&gl={country}&ceid={country}:{lang[:2]}"
-        entries = fetch_rss(url, symbol, timeout=3)
+        entries = fetch_rss(url, symbol, timeout=5)
         for e in entries[:4]:
             link  = e.get('link','')
             title = e.get('title','')
@@ -63,40 +64,12 @@ def fetch_google_news(symbol, query, lang="en-IN", country="IN"):
         pass
     return articles
 
-def get_yahoo_symbol(symbol):
-    if symbol.isalpha() and symbol not in ["AAPL","MSFT","NVDA","GOOGL","AMZN"]:
-        return f"{symbol}.NS"
-    return symbol
-
-def fetch_yahoo_news(symbol, name):
-    articles = []
-    try:
-        yahoo_symbol = get_yahoo_symbol(symbol)
-        url = f"https://finance.yahoo.com/rss/headline?s={yahoo_symbol}"
-        entries = fetch_rss(url, f"Yahoo/{symbol}", timeout=3)
-        for e in entries[:4]:
-            link  = e.get('link','')
-            title = e.get('title','')
-            if not link or not title: continue
-            pub = parse_date(e)
-            if not is_recent(pub): continue
-            articles.append({
-                'symbol': symbol,'title': title,'url': link,
-                'source': 'Yahoo Finance','tag_source_name': 'Yahoo Finance',
-                'published_at': pub,'full_text': clean_html(e.get('summary','')),
-                'tag_feed': 'company','tag_category': 'news',
-                'agent_source': 'H','tag_after_hours': 0,
-            })
-    except Exception:
-        pass
-    return articles
-
 def fetch_bing_news(symbol, query):
     articles = []
     try:
         q   = urllib.parse.quote(query)
         url = f"https://www.bing.com/news/search?q={q}&format=rss"
-        entries = fetch_rss(url, f"Bing/{symbol}", timeout=3)
+        entries = fetch_rss(url, f"Bing/{symbol}", timeout=5)
         for e in entries[:3]:
             link  = e.get('link','')
             title = e.get('title','')
@@ -126,11 +99,7 @@ def fetch_one_company(symbol, name):
                 seen_urls.add(a['url'])
                 results.append(a)
 
-    for a in fetch_yahoo_news(symbol, name):
-        if a['url'] not in seen_urls:
-            seen_urls.add(a['url'])
-            results.append(a)
-
+    # Only use Bing as fallback if Google News returned nothing
     if not results:
         for a in fetch_bing_news(symbol, f"{name} stock news"):
             if a['url'] not in seen_urls:
@@ -143,7 +112,7 @@ def fetch_one_topic(symbol, query):
     return fetch_google_news(symbol, query, lang="en-US", country="US")
 
 def run() -> int:
-    print("📰 AgentH — Google + Yahoo + Bing + News APIs (Parallel, 1-hour filter)")
+    print("📰 AgentH — Google + Bing + News APIs (Parallel, 6-hour filter)")
     articles  = []
     seen_urls = set()
 
@@ -152,7 +121,7 @@ def run() -> int:
         [(sym, query, 'topic')  for sym, query in GLOBAL_TOPICS]
     )
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=6) as ex:
         futures = {}
         for sym, val, task_type in all_tasks:
             if task_type == 'company':
@@ -169,9 +138,9 @@ def run() -> int:
             except Exception:
                 pass
 
-    print(f"📡 Fetched {len(articles)} recent articles from RSS/Yahoo/Bing")
+    print(f"📡 Fetched {len(articles)} recent articles from Google/Bing")
 
-    # ── 4 News APIs ───────────────────────────────────────────────────────────
+    # ── News APIs (cached — won't re-hit quota if other agents already called) ─
     for topic_query in [
         "Apple Microsoft Nvidia Google Amazon stock earnings",
         "India Reliance TCS HDFC Infosys stock news today",
