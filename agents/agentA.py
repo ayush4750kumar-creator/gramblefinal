@@ -1,6 +1,7 @@
 """
 agentA.py — After-Market Company News
-Sources: MoneyControl, ET Markets, LiveMint, Business Standard, Yahoo Finance + 4 News APIs
+Sources: ET Markets, LiveMint, NDTV Profit, Google News + 4 News APIs
+(Yahoo Finance per-stock RSS removed — 429s on every symbol every run)
 """
 import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
@@ -32,38 +33,6 @@ def detect_feed(symbol: str, title: str) -> str:
     if title and COMPANY_PATTERN.search(title):
         return 'company'
     return 'company'
-
-def fetch_yahoo_per_stock(symbols: list) -> list:
-    articles = []
-    for sym in symbols[:5]:
-        ticker = sym + ".NS" if not sym.endswith(".NS") and len(sym) <= 10 else sym
-        try:
-            url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
-            entries = fetch_rss(url, f"Yahoo/{sym}", timeout=6)
-            for e in entries[:10]:
-                pub = parse_date(e)
-                if not is_recent(pub):
-                    continue
-                link = e.get('link', '')
-                if not link:
-                    continue
-                articles.append({
-                    'symbol':          sym,
-                    'title':           e.get('title', ''),
-                    'url':             link,
-                    'source':          'Yahoo Finance',
-                    'tag_source_name': 'Yahoo Finance',
-                    'published_at':    pub,
-                    'full_text':       clean_html(e.get('summary', '')),
-                    'tag_feed':        'company',
-                    'tag_category':    'news',
-                    'agent_source':    'A',
-                    'tag_after_hours': is_after_hours(pub),
-                })
-            time.sleep(0.1)
-        except Exception:
-            pass
-    return articles
 
 def run() -> int:
     print("📈 AgentA — After-Market Company News")
@@ -104,11 +73,7 @@ def run() -> int:
 
     print(f"  📡 RSS: {len(articles)} recent articles from {live_feeds}/{len(SOURCES)} feeds ({skipped_old} skipped)")
 
-    yahoo_arts = fetch_yahoo_per_stock(list(COMPANY_MAP.keys()))
-    articles += yahoo_arts
-    print(f"  📡 Yahoo per-stock: {len(yahoo_arts)} recent articles")
-
-    # ── 4 News APIs ───────────────────────────────────────────────────────────
+    # ── 4 News APIs (cached — shared across all agents) ───────────────────────
     api_arts = fetch_all_apis("India stock market company earnings results", agent_source="A")
     new_api = [a for a in api_arts if a["url"] not in seen_urls]
     for a in new_api:

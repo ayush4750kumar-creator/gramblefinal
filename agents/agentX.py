@@ -9,6 +9,7 @@ import concurrent.futures, time
 from datetime import datetime
 
 import agentA, agentB, agentC, agentD, agentE, agentF, agentG, agentH
+from news_apis import reset_cache  # ← reset API cache at start of each run
 
 AGENTS = [
     ("A — After-Market Company News",    agentA.run),
@@ -22,6 +23,11 @@ AGENTS = [
 ]
 
 def run(parallel: bool = True) -> int:
+    # ── Reset API cache so each pipeline run gets fresh data ─────────────────
+    # Without this, cached empty results from rate-limited APIs persist forever
+    # and all agents get stale data on every subsequent run.
+    reset_cache()
+
     print("\n" + "═" * 55)
     print(f"🤖 AgentX — Orchestrator  [{datetime.now().strftime('%d %b %Y, %H:%M:%S')}]")
     print("═" * 55)
