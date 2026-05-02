@@ -6,7 +6,7 @@ from agentB import fetch_google_news
 import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, is_financial
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, BSE_HEADERS, nse_session, safe_json, is_financial
 from db_utils import save_articles
 from news_apis import fetch_all_apis
 from datetime import datetime, timedelta
@@ -36,12 +36,13 @@ def detect_feed(symbol, title):
 def fetch_nse_press_releases():
     articles = []
     try:
-        session = requests.Session()
-        session.headers.update(HEADERS)
-        session.get("https://www.nseindia.com", timeout=5)
+        # Use shared nse_session() — plain requests without cookies returns empty body
+        session = nse_session()
         url  = "https://www.nseindia.com/api/press-releases?index=equities"
         resp = session.get(url, timeout=10)
-        data = resp.json()
+        data = safe_json(resp, "NSE press")
+        if not data:
+            return articles
         for item in (data if isinstance(data, list) else [])[:30]:
             title = item.get('title','') or item.get('subject','')
             link  = item.get('link','') or "https://www.nseindia.com/press-releases"
@@ -59,24 +60,90 @@ def fetch_nse_press_releases():
     return articles
 
 def fetch_sebi_orders():
+    """
+    SEBI removed their old RSS feed at /sebi_data/attachdocs/rss.xml (404).
+    We now use their JSON circulars API instead.
+    Falls back to scraping the HTML press release list if the API also fails.
+    """
     articles = []
+
+    # ── Primary: SEBI circulars JSON API ─────────────────────────────────────
     try:
-        url     = "https://www.sebi.gov.in/sebi_data/attachdocs/rss.xml"
-        entries = fetch_rss(url, "SEBI", timeout=8)
-        for e in entries[:15]:
-            link  = e.get('link','')
-            title = e.get('title','')
-            pub   = parse_date(e)
+        url  = "https://www.sebi.gov.in/sebiweb/other/OtherAction.do?doLatestNews=yes&type=1&lang=en"
+        resp = requests.get(url, headers={**HEADERS, "Referer": "https://www.sebi.gov.in/"}, timeout=10)
+        data = safe_json(resp, "SEBI circulars API")
+        items = []
+        if data:
+            # Response is either a list or {"data": [...]}
+            items = data if isinstance(data, list) else data.get("data", data.get("Table", []))
+
+        for item in items[:15]:
+            title = item.get("heading", "") or item.get("HEADING", "") or item.get("title", "")
+            link  = item.get("link", "") or item.get("LINK", "")
+            if not link.startswith("http"):
+                link = "https://www.sebi.gov.in" + link
+            pub   = str(item.get("date", item.get("DATE", datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))))[:19]
             sym   = extract_symbol(title)
             articles.append({
-                'symbol': sym,'title': f"[SEBI] {title}",'url': link,
-                'source': 'SEBI','tag_source_name': 'SEBI (Official)',
-                'published_at': pub,'full_text': clean_html(e.get('summary','')),
-                'tag_feed': detect_feed(sym, title),'tag_category': 'official',
-                'agent_source': 'F','tag_after_hours': is_after_hours(pub),
+                'symbol': sym, 'title': f"[SEBI] {title}", 'url': link,
+                'source': 'SEBI', 'tag_source_name': 'SEBI (Official)',
+                'published_at': pub, 'full_text': title,
+                'tag_feed': detect_feed(sym, title), 'tag_category': 'official',
+                'agent_source': 'F', 'tag_after_hours': is_after_hours(pub),
+            })
+        if articles:
+            return articles
+    except Exception as e:
+        print(f"  ⚠  SEBI circulars API: {e}")
+
+    # ── Fallback: SEBI press release RSS (different path, still live) ─────────
+    try:
+        fallback_urls = [
+            "https://www.sebi.gov.in/sebi_data/attachdocs/press-release-rss.xml",
+            "https://www.sebi.gov.in/rss/latestnews.xml",
+        ]
+        for rss_url in fallback_urls:
+            entries = fetch_rss(rss_url, "SEBI RSS fallback", timeout=8)
+            if entries:
+                for e in entries[:15]:
+                    link  = e.get('link', '')
+                    title = e.get('title', '')
+                    pub   = parse_date(e)
+                    sym   = extract_symbol(title)
+                    articles.append({
+                        'symbol': sym, 'title': f"[SEBI] {title}", 'url': link,
+                        'source': 'SEBI', 'tag_source_name': 'SEBI (Official)',
+                        'published_at': pub, 'full_text': clean_html(e.get('summary', '')),
+                        'tag_feed': detect_feed(sym, title), 'tag_category': 'official',
+                        'agent_source': 'F', 'tag_after_hours': is_after_hours(pub),
+                    })
+                return articles
+    except Exception as e:
+        print(f"  ⚠  SEBI RSS fallback: {e}")
+
+    # ── Last resort: Google News for SEBI orders ──────────────────────────────
+    try:
+        import urllib.parse
+        q   = urllib.parse.quote("SEBI order circular penalty India")
+        url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
+        entries = fetch_rss(url, "SEBI via Google News", timeout=8)
+        for e in entries[:10]:
+            link  = e.get('link', '')
+            title = e.get('title', '')
+            if 'sebi' not in title.lower():
+                continue
+            pub = parse_date(e)
+            sym = extract_symbol(title)
+            articles.append({
+                'symbol': sym, 'title': f"[SEBI] {title}", 'url': link,
+                'source': 'SEBI (via Google News)', 'tag_source_name': 'SEBI (Official)',
+                'published_at': pub, 'full_text': clean_html(e.get('summary', '')),
+                'tag_feed': detect_feed(sym, title), 'tag_category': 'official',
+                'agent_source': 'F', 'tag_after_hours': is_after_hours(pub),
             })
     except Exception as e:
-        print(f"  ⚠  SEBI: {e}")
+        print(f"  ⚠  SEBI Google News fallback: {e}")
+
     return articles
 
 def run() -> int:

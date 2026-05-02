@@ -5,7 +5,7 @@ Sources: BSE/NSE/SEC filings + 4 News APIs
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, HEADERS, COMPANY_MAP
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, HEADERS, BSE_HEADERS, nse_session, safe_json, COMPANY_MAP
 from db_utils import save_articles
 from news_apis import fetch_all_apis
 from datetime import datetime, timedelta
@@ -65,9 +65,12 @@ def fetch_bse_category(cat_name, cat_code):
             f"?strCat={cat_code}&strPrevDate={week_ago}&strScrip=&strSearch=P"
             f"&strToDate={today}&strType=C&subcategory=-1"
         )
-        resp = requests.get(url, headers=HEADERS, timeout=8)
-        data = resp.json()
-        for item in (data.get('Table',[]) or [])[:20]:
+        # BSE requires Referer + Origin headers or returns empty body
+        resp = requests.get(url, headers=BSE_HEADERS, timeout=8)
+        data = safe_json(resp, f"BSE {cat_name}")
+        if not data:
+            return articles
+        for item in (data.get('Table', []) or [])[:20]:
             sym_name = item.get('SLONGNAME','')
             title    = item.get('HEADLINE','')
             sym      = extract_symbol(sym_name + ' ' + title)
@@ -94,12 +97,13 @@ def fetch_bse_category(cat_name, cat_code):
 def fetch_nse_filings():
     articles = []
     try:
-        session = requests.Session()
-        session.headers.update(HEADERS)
-        session.get("https://www.nseindia.com", timeout=5)
+        # nse_session() handles the cookie warmup that NSE requires
+        session = nse_session()
         url  = "https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=&to_date=&csv=false"
         resp = session.get(url, timeout=10)
-        data = resp.json()
+        data = safe_json(resp, "NSE filings")
+        if not data:
+            return articles
         for item in (data if isinstance(data, list) else [])[:60]:
             sym   = item.get('symbol','')
             title = item.get('subject','') or item.get('desc','')

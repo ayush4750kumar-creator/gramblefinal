@@ -93,15 +93,69 @@ COMPANY_MAP = {
     "TATACONSUM":  ["tata consumer"],
 }
 
+# ── Headers — NSE/BSE require Referer + Accept or they return empty bodies ────
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept":           "application/json, text/plain, */*",
+    "Accept-Language":  "en-US,en;q=0.9",
+    "Accept-Encoding":  "gzip, deflate, br",
+    "Connection":       "keep-alive",
 }
 
-def fetch_rss(url: str, source_name: str, timeout=3) -> list:
+# NSE specifically requires a Referer and a warmed-up session cookie.
+# Call nse_session() once and reuse the returned Session object.
+def nse_session() -> requests.Session:
+    """
+    Return a requests.Session with NSE cookies set.
+    NSE returns empty body (causes JSON parse errors) without a valid session.
+    """
+    session = requests.Session()
+    session.headers.update({
+        **HEADERS,
+        "Referer": "https://www.nseindia.com/",
+    })
+    try:
+        # Warm up: hit the homepage to get session cookies
+        session.get("https://www.nseindia.com", timeout=8)
+        time.sleep(0.5)
+        # Second hit to the market data page seeds more cookies
+        session.get("https://www.nseindia.com/market-data/live-equity-market", timeout=8)
+        time.sleep(0.3)
+    except Exception:
+        pass  # Carry on with whatever cookies we got
+    return session
+
+# BSE API requires these specific headers to return JSON instead of empty body
+BSE_HEADERS = {
+    **HEADERS,
+    "Referer":  "https://www.bseindia.com/",
+    "Origin":   "https://www.bseindia.com",
+}
+
+def safe_json(resp: requests.Response, label: str):
+    """
+    Parse JSON from a response safely.
+    Prints a clear error and returns None if the body is empty or not JSON.
+    This prevents the 'Expecting value: line 1 column 1' crash.
+    """
+    raw = resp.text.strip()
+    if not raw:
+        print(f"  ⚠  {label}: empty response body (HTTP {resp.status_code})")
+        return None
+    if raw.startswith("<"):
+        print(f"  ⚠  {label}: got HTML instead of JSON (HTTP {resp.status_code}) — possible auth wall")
+        return None
+    try:
+        return resp.json()
+    except Exception as e:
+        print(f"  ⚠  {label}: JSON parse error — {e}")
+        return None
+
+def fetch_rss(url: str, source_name: str, timeout=8) -> list:
     """Parse an RSS/Atom feed. Returns list of raw entry dicts."""
     try:
         resp = requests.get(url, headers=HEADERS, timeout=timeout)

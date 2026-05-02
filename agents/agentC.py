@@ -5,7 +5,7 @@ Sources: RSS feeds + NSE/BSE filings + 4 News APIs
 import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, is_financial
+from fetch_utils import fetch_rss, parse_date, clean_html, extract_symbol, is_after_hours, is_recent, HEADERS, BSE_HEADERS, nse_session, safe_json, is_financial
 from db_utils import save_articles
 from news_apis import fetch_all_apis
 from datetime import datetime
@@ -82,16 +82,17 @@ def fetch_google_news(query, agent_source, category='news'):
 def fetch_nse_announcements():
     articles = []
     try:
-        url     = "https://www.nseindia.com/api/corporate-announcements?index=equities"
-        session = requests.Session()
-        session.headers.update(HEADERS)
-        session.get("https://www.nseindia.com", timeout=5)
+        # nse_session() handles the required cookie warmup
+        session = nse_session()
+        url  = "https://www.nseindia.com/api/corporate-announcements?index=equities"
         resp = session.get(url, timeout=8)
-        data = resp.json()
+        data = safe_json(resp, "NSE announcements")
+        if not data:
+            return articles
         for item in (data if isinstance(data, list) else [])[:50]:
             sym   = item.get('symbol','')
             title = item.get('desc','') or item.get('subject','')
-            link  = f"https://www.nseindia.com/companies-listing/corporate-filings-announcements"
+            link  = "https://www.nseindia.com/companies-listing/corporate-filings-announcements"
             pub   = item.get('an_dt', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
             articles.append({
                 'symbol': sym,'title': f"[NSE] {sym}: {title}",
@@ -113,9 +114,12 @@ def fetch_bse_announcements():
             f"https://api.bseindia.com/BseIndiaAPI/api/AnnGetAnnouncementList/w"
             f"?strCat=-1&strPrevDate={today}&strScrip=&strSearch=P&strToDate={today}&strType=C&subcategory=-1"
         )
-        resp = requests.get(url, headers=HEADERS, timeout=8)
-        data = resp.json()
-        for item in (data.get('Table',[]) or [])[:50]:
+        # BSE_HEADERS includes Referer + Origin which BSE requires for JSON response
+        resp = requests.get(url, headers=BSE_HEADERS, timeout=8)
+        data = safe_json(resp, "BSE announcements")
+        if not data:
+            return articles
+        for item in (data.get('Table', []) or [])[:50]:
             sym_code = item.get('SCRIP_CD','')
             sym_name = item.get('SLONGNAME', sym_code)
             title    = item.get('HEADLINE','')
