@@ -437,6 +437,23 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     const timer = setTimeout(async () => {
       if (isStock) {
         const sym = view.symbol;
+
+        // If we don't have a full company name (e.g. navigated via URL hash),
+        // fetch it from the search suggest API and patch the view
+        if (!view.companyName || view.companyName === sym) {
+          fetch(`${SEARCH_API}/suggest?q=${sym}`)
+            .then(r => r.json())
+            .then(d => {
+              if (d.success && d.data?.length) {
+                const match = d.data.find(s => s.symbol === sym);
+                if (match?.name) {
+                  setView(prev => ({ ...prev, companyName: match.name }));
+                }
+              }
+            })
+            .catch(() => {});
+        }
+
         const d = await fetch(`${API}?limit=100&symbol=${sym}`).catch(()=>({json:()=>({data:[]})}));
         const data = (await d.json()).data || [];
         setArticles(data);
