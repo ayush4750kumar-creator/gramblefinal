@@ -11,7 +11,6 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
   const [prices,          setPrices]          = useState({});
   const searchRef = useRef(null);
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e) => {
       if (searchRef.current && !searchRef.current.contains(e.target))
@@ -21,7 +20,6 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Fetch prices for visible suggestions
   const fetchPrices = useCallback(async (symbols) => {
     if (!symbols.length) return;
     try {
@@ -31,7 +29,6 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
     } catch (_) {}
   }, []);
 
-  // Fetch suggestions with debounce
   useEffect(() => {
     const timer = setTimeout(async () => {
       try {
@@ -61,8 +58,9 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
     }
   };
 
+  // ── FIXED: opens news feed first, not dashboard ──
   const handleRowClick = (stock) => {
-    setView({ type: 'stock', symbol: stock.symbol });
+    setView({ type: 'stock', symbol: stock.symbol, companyName: stock.name, exchange: stock.exchange });
     setQuery('');
     setShowSuggestions(false);
   };
@@ -85,7 +83,6 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
           gramble<span style={{ color:'#3b82f6' }}>.in</span>
         </button>
 
-        {/* ── Search bar ── */}
         <div ref={searchRef} style={{ position:'relative', flex:1, maxWidth:460 }}>
           <input
             type="text"
@@ -108,7 +105,6 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
             }}
           />
 
-          {/* Suggestions dropdown */}
           {showSuggestions && suggestions.length > 0 && (
             <div style={{
               position: 'absolute', top: '110%', left: 0, right: 0,
@@ -117,7 +113,7 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
               zIndex: 200, overflow: 'hidden', maxHeight: 420, overflowY: 'auto',
             }}>
               <div style={{ padding: '8px 12px 4px', fontSize: 11, color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                {query ? 'Matches' : '�� Popular Stocks'}
+                {query ? 'Matches' : '🔥 Popular Stocks'}
               </div>
 
               {suggestions.map(s => {
@@ -139,7 +135,6 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
                     onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
                     onMouseLeave={e => e.currentTarget.style.background = '#fff'}
                   >
-                    {/* Left: icon + name */}
                     <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                       <div style={{ width:36, height:36, borderRadius:8, background:'#eff6ff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:11, color:'#2563eb' }}>
                         {s.symbol.slice(0, 3)}
@@ -153,7 +148,6 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
                       </div>
                     </div>
 
-                    {/* Right: live price + watch button */}
                     <div style={{ display:'flex', gap:10, alignItems:'center' }}>
                       {priceData ? (
                         <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end' }}>
@@ -169,9 +163,6 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
                         onClick={e => {
                           e.stopPropagation();
                           if (onWatchlist) onWatchlist(s);
-                          setView({ type: 'stock', symbol: s.symbol });
-                          setQuery('');
-                          setShowSuggestions(false);
                         }}
                         style={{
                           fontSize: 11,

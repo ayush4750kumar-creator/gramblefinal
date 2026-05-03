@@ -60,7 +60,12 @@ export default function LeftSidebar({ user, token, watchlist, setView, view, onW
               const priceData = prices[w.symbol] || null;
               return (
                 <div key={w.symbol}
-                  onClick={() => !editMode && setView({ type:'stock', symbol:w.symbol })}
+                  onClick={() => {
+                    if (!editMode) {
+                      // ── FIXED: opens news feed first, not dashboard ──
+                      setView({ type: 'stock', symbol: w.symbol, companyName: w.name || w.symbol, exchange: w.exchange });
+                    }
+                  }}
                   style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 12px', borderRadius:8, cursor:'pointer', background: active?'#eff6ff':'#f9fafb', border: active?'1px solid #bfdbfe':'1px solid #e5e7eb', transition:'all 0.15s', gap:8 }}>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontWeight:700, fontSize:14, color:'#2563eb', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{w.symbol}</div>
