@@ -70,10 +70,6 @@ function useIsMobile() {
   return m;
 }
 
-// ── view type helpers ─────────────────────────────────────────────────────────
-// type:'stock-news'  → shows news articles for a stock (with "Stock Analysis →" button)
-// type:'stock'       → shows the StockAnalysis dashboard
-
 function viewToHash(view) {
   if (!view || view === 'feed') return '';
   if (view?.type === 'stock' || view?.type === 'stock-news') return view.symbol;
@@ -290,14 +286,11 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   const scrollRef    = useRef(null);
   const isMobile     = useIsMobile();
 
-  // type:'stock'       = dashboard
-  // type:'stock-news'  = news feed for that stock
   const isStockDash  = view?.type === 'stock';
   const isStockNews  = view?.type === 'stock-news';
-  const isStock      = isStockDash || isStockNews; // either stock view
+  const isStock      = isStockDash || isStockNews;
   const isExchange   = view === 'World Exchange';
 
-  // ── Hash persistence ─────────────────────────────────────────────────────
   useEffect(() => {
     const hash = window.location.hash.replace(/^#/,'').trim();
     if (hash) {
@@ -480,8 +473,6 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
         )}
         <div ref={scrollRef} style={{ flex:1, overflowY:'auto', padding:'12px' }}>
           {newPillCount > 0 && <NewArticlesPill count={newPillCount} onClick={loadNewArticles} />}
-
-          {/* Stock dashboard — only when type:'stock' */}
           {isStockDash && (
             <StockAnalysis
               symbol={view.symbol}
@@ -492,7 +483,6 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
               onBack={() => setView({ type:'stock-news', symbol:view.symbol, companyName:view.companyName })}
             />
           )}
-
           {!isStockDash && showFetching && <FetchingScreen symbol={view.symbol} />}
           {!isStockDash && loading && !isStock && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:80, gap:12 }}><Spinner /><div style={{ fontSize:13, color:'#9ca3af' }}>Loading news...</div></div>}
           {!isStockDash && !showFetching && !loading && !displayArticles.length && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:80, gap:12 }}><div style={{ fontSize:44 }}>📭</div><div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news found</div></div>}
@@ -507,16 +497,12 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   return (
     <main style={{ background:'#f3f4f6', borderRadius:12, padding:0, overflowY:'hidden', display:'flex', flexDirection:'column' }}>
       {toast && <WatchlistToast symbol={toast} />}
-
-      {/* Header bar */}
       <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0, background:'#fff', borderRadius:'12px 12px 0 0' }}>
         {view !== 'feed' && (
           <button onClick={()=>setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>
         )}
         <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>{feedTitle}</div>
         {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>{displayArticles.length} articles</span>}
-
-        {/* Watchlist + Stock Analysis button — shown when viewing stock NEWS */}
         {isStockNews && (
           <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
             <button
@@ -525,7 +511,6 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
             >
               {inWatchlist ? '✓ In Watchlist' : '+ Add to Watchlist'}
             </button>
-            {/* ── THE BUTTON THAT OPENS STOCK ANALYSIS DASHBOARD ── */}
             <button
               onClick={() => setView({ type:'stock', symbol:view.symbol, companyName:view.companyName, sentiment:view.sentiment })}
               style={{ padding:'6px 16px', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer', background:'#2563eb', color:'#fff', border:'none', display:'flex', alignItems:'center', gap:6 }}
@@ -534,8 +519,6 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
             </button>
           </div>
         )}
-
-        {/* Watchlist button — shown when on dashboard */}
         {isStockDash && (
           <button
             onClick={()=>handleWatchlistClick(view.symbol)}
@@ -554,8 +537,6 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
 
       <div style={{ overflowY:'auto', padding:'12px', flex:1 }}>
         {newPillCount > 0 && <NewArticlesPill count={newPillCount} onClick={loadNewArticles} />}
-
-        {/* Stock Analysis dashboard — only when type:'stock' */}
         {isStockDash && (
           <StockAnalysis
             symbol={view.symbol}
@@ -566,7 +547,6 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
             onBack={() => setView({ type:'stock-news', symbol:view.symbol, companyName:view.companyName })}
           />
         )}
-
         {!isStockDash && showFetching && <FetchingScreen symbol={view.symbol} />}
         {!isStockDash && loading && !isStock && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}><Spinner /><div style={{ fontSize:13, color:'#9ca3af' }}>Loading news...</div></div>}
         {!isStockDash && !showFetching && !loading && !displayArticles.length && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}><div style={{ fontSize:44 }}>📭</div><div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news found</div></div>}
