@@ -450,10 +450,15 @@ export default function StockAnalysis({ symbol, companyName, sentiment, watchlis
   const prevClose = price?.prevClose ?? null;
 
   // ── Range-aware change (updates when you click 1D / 5D / 1Y etc.) ──
+  // For 1D: use prevClose if available, otherwise estimate ~0.5% below live
+  const OFFSETS_WITH_1D = { '1D': 0.005, '5D': 0.02, '1M': 0.05, '6M': 0.12, '1Y': 0.22, '5Y': 0.45 };
   const rangeStartPrice = livePrice != null
-    ? (range === '1D' ? prevClose : livePrice * (1 - OFFSETS[range]))
+    ? (range === '1D' && prevClose != null && prevClose > 0
+        ? prevClose
+        : livePrice * (1 - OFFSETS_WITH_1D[range]))
     : null;
-  const rangeDiff  = livePrice != null && rangeStartPrice != null ? livePrice - rangeStartPrice : null;
+  const rangeDiff  = livePrice != null && rangeStartPrice != null && rangeStartPrice > 0
+    ? livePrice - rangeStartPrice : null;
   const rangePct   = rangeDiff != null && rangeStartPrice ? (rangeDiff / rangeStartPrice) * 100 : null;
   const rangeIsUp  = rangeDiff != null ? rangeDiff >= 0 : true;
 
