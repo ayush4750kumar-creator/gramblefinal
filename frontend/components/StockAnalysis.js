@@ -6,8 +6,6 @@ const RANGES           = ['1D', '5D', '1M', '6M', '1Y', '5Y'];
 
 const UP    = '#0d9488';
 const DN    = '#dc2626';
-const UP_BG = 'rgba(13,148,136,0.10)';
-const DN_BG = 'rgba(220,38,38,0.09)';
 
 const SENT = {
   bullish:  { color: UP, label: '▲ Bullish today' },
@@ -17,7 +15,6 @@ const SENT = {
   neutral:  { color: '#6b7280', label: '● Neutral today' },
 };
 
-// ── Simulated series ──────────────────────────────────────────────────────────
 function buildSeries(livePrice, prevClose, range) {
   const counts = { '1D':78,'5D':25,'1M':22,'6M':26,'1Y':52,'5Y':60 };
   const labelers = {
@@ -40,7 +37,6 @@ function buildSeries(livePrice, prevClose, range) {
   return arr;
 }
 
-// ── Spinner ───────────────────────────────────────────────────────────────────
 function Spinner({ size=20 }) {
   return (
     <>
@@ -50,7 +46,6 @@ function Spinner({ size=20 }) {
   );
 }
 
-// ── Main chart ────────────────────────────────────────────────────────────────
 function MainChart({ series, prevClose, isUp, range, setRange }) {
   const wrapRef = useRef(null);
   const [w, setW]         = useState(600);
@@ -117,7 +112,6 @@ function MainChart({ series, prevClose, isUp, range, setRange }) {
       <div style={{display:'flex',borderBottom:'1px solid #f0f0f0',marginBottom:4}}>
         {RANGES.map(r=><button key={r} onClick={()=>setRange(r)} style={tabSt(range===r)}>{r}</button>)}
       </div>
-
       <div ref={wrapRef} style={{width:'100%',position:'relative',userSelect:'none'}}>
         <svg width={w} height={H+mb} onMouseMove={onMove} onMouseLeave={()=>setHover(null)} style={{cursor:'crosshair',display:'block'}}>
           <defs>
@@ -126,7 +120,6 @@ function MainChart({ series, prevClose, isUp, range, setRange }) {
               <stop offset="100%" stopColor={color} stopOpacity="0.01"/>
             </linearGradient>
           </defs>
-
           {yTicks.map((v,i)=>(
             <g key={i}>
               <line x1={ml} x2={ml+cw} y1={yOf(v)} y2={yOf(v)} stroke="#f0f0f0" strokeWidth={1}/>
@@ -135,23 +128,19 @@ function MainChart({ series, prevClose, isUp, range, setRange }) {
               </text>
             </g>
           ))}
-
           {prevY!=null&&prevY>mt&&prevY<mt+ch&&(
             <>
               <line x1={ml} x2={ml+cw} y1={prevY} y2={prevY} stroke="#d1d5db" strokeWidth={1} strokeDasharray="5,3"/>
               <text x={ml-6} y={prevY} textAnchor="end" dominantBaseline="middle" fontSize={9} fill="#c0c0c0">Prev</text>
             </>
           )}
-
           <path d={area} fill="url(#_sa_grad)"/>
           <path d={line} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round"/>
-
           {xIdxs.map(i=>(
             <text key={i} x={xOf(i)} y={H+mb-8} textAnchor="middle" fontSize={10} fill="#9ca3af">
               {series[i]?.t}
             </text>
           ))}
-
           {hover&&<>
             <line x1={hover.x} x2={hover.x} y1={mt} y2={mt+ch} stroke="rgba(0,0,0,0.08)" strokeWidth={1}/>
             <circle cx={hover.x} cy={hover.y} r={4} fill={color} stroke="#fff" strokeWidth={2}/>
@@ -160,7 +149,6 @@ function MainChart({ series, prevClose, isUp, range, setRange }) {
             </text>
           </>}
         </svg>
-
         {hover&&(
           <div style={{
             position:'absolute',top:Math.max(4,hover.y-36),left:Math.min(hover.x+8,w-120),
@@ -176,7 +164,6 @@ function MainChart({ series, prevClose, isUp, range, setRange }) {
   );
 }
 
-// ── Volume bars ───────────────────────────────────────────────────────────────
 function VolumeBars({ series, isUp }) {
   const wrapRef = useRef(null);
   const [w, setW] = useState(600);
@@ -206,7 +193,6 @@ function VolumeBars({ series, isUp }) {
   );
 }
 
-// ── Performance tab ───────────────────────────────────────────────────────────
 function PerformanceTab({ price, livePrice, prevClose, isUp, diff, pct }) {
   const fmtNum = v => {
     if (v==null||v===''||isNaN(Number(v))) return '—';
@@ -253,7 +239,6 @@ function PerformanceTab({ price, livePrice, prevClose, isUp, diff, pct }) {
           </div>
         </>
       )}
-
       <div style={{fontSize:11,fontWeight:700,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:10}}>Key Statistics</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 20px',marginBottom:20}}>
         {metrics.map(m=>(
@@ -263,7 +248,6 @@ function PerformanceTab({ price, livePrice, prevClose, isUp, diff, pct }) {
           </div>
         ))}
       </div>
-
       <div style={{fontSize:11,fontWeight:700,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:10}}>Analyst Consensus</div>
       {[
         {label:'Strong Buy',pct:58,color:UP},
@@ -283,7 +267,6 @@ function PerformanceTab({ price, livePrice, prevClose, isUp, diff, pct }) {
   );
 }
 
-// ── Stats Graphs tab ──────────────────────────────────────────────────────────
 function StatsGraphsTab({ livePrice }) {
   const quarters = ['Q1 24','Q2 24','Q3 24','Q4 24','Q1 25','Q2 25','Q3 25','Q4 25'];
   const revenue  = [42,45,48,51,49,54,58,62].map(v=>v+(Math.random()*4-2));
@@ -346,7 +329,6 @@ function StatsGraphsTab({ livePrice }) {
         <BarChart data={eps}     label="EPS (₹)" color="#9333ea"/>
         <BarChart data={revenue.map((_,i)=>revenue[i]-profit[i])} label="Operating Expense (₹Bn)" color="#f59e0b" unit="B"/>
       </div>
-
       <div style={{fontSize:11,fontWeight:700,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:12}}>Technical Indicators</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
         {statCards.map(c=>(
@@ -361,7 +343,6 @@ function StatsGraphsTab({ livePrice }) {
   );
 }
 
-// ── All News tab ──────────────────────────────────────────────────────────────
 function AllNewsTab({ symbol }) {
   const [news,    setNews]    = useState([]);
   const [loading, setLoading] = useState(true);
@@ -400,22 +381,9 @@ function AllNewsTab({ symbol }) {
         const sent   = SENT_STYLE[a.sentiment_label];
         const source = a.tag_source_name || a.source || '';
         const when   = timeAgo(a.published_at);
-
         return(
-          <a
-            key={a.id||i}
-            href={a.url}
-            target="_blank"
-            rel="noreferrer"
-            style={{
-              display:'block',
-              background:'#fff',
-              border:'1px solid #e5e7eb',
-              borderRadius:12,
-              padding:'12px 14px',
-              marginBottom:10,
-              textDecoration:'none',
-            }}
+          <a key={a.id||i} href={a.url} target="_blank" rel="noreferrer"
+            style={{ display:'block', background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:'12px 14px', marginBottom:10, textDecoration:'none' }}
           >
             <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:6,flexWrap:'wrap'}}>
               {sent && (
@@ -428,9 +396,7 @@ function AllNewsTab({ symbol }) {
               <span style={{fontSize:11,color:'#d1d5db'}}>·</span>
               <span style={{fontSize:12,color:'#9ca3af'}}>{when}</span>
             </div>
-            <div style={{fontSize:14,fontWeight:700,color:'#111',lineHeight:1.5}}>
-              {title}
-            </div>
+            <div style={{fontSize:14,fontWeight:700,color:'#111',lineHeight:1.5}}>{title}</div>
           </a>
         );
       })}
@@ -489,12 +455,18 @@ export default function StockAnalysis({ symbol, companyName, sentiment, watchlis
   return (
     <div style={{fontFamily:'inherit',paddingBottom:'2rem'}}>
 
-      {/* ← Back to news button only — company name/watchlist header removed */}
+      {/* ── Back link ── */}
       <button onClick={onBack} style={{display:'inline-flex',alignItems:'center',gap:4,background:'none',border:'none',cursor:'pointer',fontSize:13,color:'#6b7280',padding:'0 0 12px',fontFamily:'inherit'}}>
         ← Back to news
       </button>
 
-      {/* Price block */}
+      {/* ── Company name row (restored) ── */}
+      <div style={{marginBottom:6}}>
+        <div style={{fontSize:12,color:'#9ca3af',fontWeight:500,marginBottom:2}}>{symbol} · NSE/BSE</div>
+        <div style={{fontSize:19,fontWeight:700,color:'#111'}}>{companyName||symbol}</div>
+      </div>
+
+      {/* ── Price block ── */}
       <div style={{marginBottom:12}}>
         {loadP ? (
           <div style={{display:'flex',alignItems:'center',gap:8,height:44}}>
@@ -517,28 +489,22 @@ export default function StockAnalysis({ symbol, companyName, sentiment, watchlis
         )}
       </div>
 
-      {/* Chart */}
+      {/* ── Chart ── */}
       <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,padding:'10px 10px 0',marginBottom:0}}>
         <MainChart series={series} prevClose={prevClose} isUp={isUp} range={range} setRange={setRange}/>
         <VolumeBars series={series} isUp={isUp}/>
       </div>
 
-      {/* Tabs */}
+      {/* ── Tabs ── */}
       <div style={{display:'flex',borderBottom:'1px solid #e5e7eb',marginTop:16,marginBottom:16}}>
         <button onClick={()=>setTab('performance')} style={mainTabSt(tab==='performance')}>Performance</button>
         <button onClick={()=>setTab('graphs')}      style={mainTabSt(tab==='graphs')}>Stats Graphs</button>
         <button onClick={()=>setTab('news')}        style={mainTabSt(tab==='news')}>All News</button>
       </div>
 
-      {tab==='performance'&&(
-        <PerformanceTab price={price} livePrice={livePrice} prevClose={prevClose} isUp={isUp} diff={diff} pct={pct}/>
-      )}
-      {tab==='graphs'&&(
-        <StatsGraphsTab livePrice={livePrice}/>
-      )}
-      {tab==='news'&&(
-        <AllNewsTab symbol={symbol}/>
-      )}
+      {tab==='performance'&&<PerformanceTab price={price} livePrice={livePrice} prevClose={prevClose} isUp={isUp} diff={diff} pct={pct}/>}
+      {tab==='graphs'&&<StatsGraphsTab livePrice={livePrice}/>}
+      {tab==='news'&&<AllNewsTab symbol={symbol}/>}
     </div>
   );
 }
