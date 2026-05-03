@@ -7,6 +7,16 @@ const RANGES           = ['1D', '5D', '1M', '6M', '1Y', '5Y'];
 const UP    = '#0d9488';
 const DN    = '#dc2626';
 
+const OFFSETS = { '1D':0, '5D':0.02, '1M':0.05, '6M':0.12, '1Y':0.22, '5Y':0.45 };
+const RANGE_LABELS = {
+  '1D': 'today',
+  '5D': 'past 5 days',
+  '1M': 'past month',
+  '6M': 'past 6 months',
+  '1Y': 'past year',
+  '5Y': 'past 5 years',
+};
+
 const SENT = {
   bullish:  { color: UP, label: '▲ Bullish today' },
   bearish:  { color: DN, label: '▼ Bearish today' },
@@ -25,9 +35,8 @@ function buildSeries(livePrice, prevClose, range) {
     '1Y': i => ['May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr'][Math.floor(i/4.3)]??'',
     '5Y': i => `${2021+Math.floor(i/12)}`,
   };
-  const offsets = {'1D':0,'5D':0.02,'1M':0.05,'6M':0.12,'1Y':0.22,'5Y':0.45};
   const n     = counts[range];
-  const start = livePrice*(1-offsets[range]);
+  const start = livePrice*(1-OFFSETS[range]);
   const arr   = Array.from({length:n},(_,i)=>{
     const trend = start+(livePrice-start)*(i/(n-1));
     const noise = (Math.random()-0.45)*livePrice*0.006;
@@ -439,10 +448,21 @@ export default function StockAnalysis({ symbol, companyName, sentiment, watchlis
 
   const livePrice = price?.price     ?? null;
   const prevClose = price?.prevClose ?? null;
-  const diff      = livePrice!=null&&prevClose!=null ? livePrice-prevClose : null;
-  const pct       = diff!=null ? (diff/prevClose)*100 : null;
-  const isUp      = diff!=null ? diff>=0 : true;
-  const ss        = SENT[sentiment?.toLowerCase()] ?? SENT.neutral;
+
+  // ── Range-aware change (updates when you click 1D / 5D / 1Y etc.) ──
+  const rangeStartPrice = livePrice != null
+    ? (range === '1D' ? prevClose : livePrice * (1 - OFFSETS[range]))
+    : null;
+  const rangeDiff  = livePrice != null && rangeStartPrice != null ? livePrice - rangeStartPrice : null;
+  const rangePct   = rangeDiff != null && rangeStartPrice ? (rangeDiff / rangeStartPrice) * 100 : null;
+  const rangeIsUp  = rangeDiff != null ? rangeDiff >= 0 : true;
+
+  // 1D values still used for PerformanceTab
+  const diff = livePrice != null && prevClose != null ? livePrice - prevClose : null;
+  const pct  = diff != null ? (diff / prevClose) * 100 : null;
+  const isUp = diff != null ? diff >= 0 : true;
+
+  const ss = SENT[sentiment?.toLowerCase()] ?? SENT.neutral;
 
   const mainTabSt = active => ({
     padding:'10px 18px', fontSize:13, cursor:'pointer', border:'none',
@@ -460,7 +480,7 @@ export default function StockAnalysis({ symbol, companyName, sentiment, watchlis
         ← Back to news
       </button>
 
-      {/* ── Company name row (restored) ── */}
+      {/* ── Company name row ── */}
       <div style={{marginBottom:6}}>
         <div style={{fontSize:12,color:'#9ca3af',fontWeight:500,marginBottom:2}}>{symbol} · NSE/BSE</div>
         <div style={{fontSize:19,fontWeight:700,color:'#111'}}>{companyName||symbol}</div>
@@ -474,16 +494,29 @@ export default function StockAnalysis({ symbol, companyName, sentiment, watchlis
           </div>
         ) : (
           <>
-            <div style={{display:'flex',alignItems:'baseline',gap:12}}>
-              <span style={{fontSize:30,fontWeight:300,color:'#111',letterSpacing:'-0.5px'}}>
-                {livePrice!=null ? livePrice.toLocaleString('en-IN',{maximumFractionDigits:2}) : '—'}
-              </span>
-              {diff!=null&&(
-                <span style={{fontSize:14,color:isUp?UP:DN,fontWeight:600}}>
-                  {isUp?'▲':'▼'} {isUp?'+':''}{diff.toFixed(2)} ({isUp?'+':''}{pct.toFixed(2)}%)
-                </span>
-              )}
+            {/* Big price number */}
+            <div style={{fontSize:30,fontWeight:300,color:'#111',letterSpacing:'-0.5px',marginBottom:4}}>
+              {livePrice!=null ? livePrice.toLocaleString('en-IN',{maximumFractionDigits:2}) : '—'}
             </div>
+
+            {/* Range-aware change line — updates as you switch tabs */}
+            {rangeDiff != null && (
+              <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:2}}>
+                <span style={{
+                  fontSize:15, fontWeight:700,
+                  color: rangeIsUp ? UP : DN,
+                }}>
+                  {rangeIsUp ? '▲' : '▼'}{' '}
+                  {rangeIsUp ? '+' : ''}{rangeDiff.toLocaleString('en-IN',{maximumFractionDigits:2})}
+                  {' '}({rangeIsUp ? '+' : ''}{rangePct.toFixed(2)}%)
+                </span>
+                <span style={{fontSize:13,color:'#9ca3af',fontWeight:400}}>
+                  {RANGE_LABELS[range]}
+                </span>
+              </div>
+            )}
+
+            {/* Sentiment label */}
             <div style={{fontSize:12,color:ss.color,fontWeight:600,marginTop:2}}>{ss.label}</div>
           </>
         )}
@@ -491,8 +524,8 @@ export default function StockAnalysis({ symbol, companyName, sentiment, watchlis
 
       {/* ── Chart ── */}
       <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,padding:'10px 10px 0',marginBottom:0}}>
-        <MainChart series={series} prevClose={prevClose} isUp={isUp} range={range} setRange={setRange}/>
-        <VolumeBars series={series} isUp={isUp}/>
+        <MainChart series={series} prevClose={prevClose} isUp={rangeIsUp} range={range} setRange={setRange}/>
+        <VolumeBars series={series} isUp={rangeIsUp}/>
       </div>
 
       {/* ── Tabs ── */}
