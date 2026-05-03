@@ -204,15 +204,19 @@ function NewsCard({ a, price, onWatchlist, watchlist, setView, onWatchlistClick 
   );
 }
 
-function FetchingScreen({ symbol }) {
+function FetchingScreen({ symbol, companyName }) {
   const [dots, setDots] = useState('');
   useEffect(() => {
     const t = setInterval(() => setDots(d => d.length >= 3 ? '' : d + '.'), 400);
     return () => clearInterval(t);
   }, []);
+  const hasFullName = companyName && companyName !== symbol;
   return (
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'70%', gap:16 }}>
-      <div style={{ fontSize:28, fontWeight:800, color:'#111' }}>{symbol}</div>
+      <div style={{ textAlign:'center' }}>
+        <div style={{ fontSize:28, fontWeight:800, color:'#111' }}>{hasFullName ? companyName : symbol}</div>
+        {hasFullName && <div style={{ fontSize:13, color:'#9ca3af', fontWeight:600, fontFamily:'monospace', marginTop:4 }}>{symbol}</div>}
+      </div>
       <Spinner size={40} />
       <div style={{ fontSize:14, color:'#6b7280', fontWeight:500 }}>Fetching news{dots}</div>
     </div>
@@ -538,7 +542,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
               onBack={() => setView({ type:'stock-news', symbol:view.symbol, companyName:view.companyName })}
             />
           )}
-          {!isStockDash && showFetching && <FetchingScreen symbol={view.symbol} />}
+          {!isStockDash && showFetching && <FetchingScreen symbol={view.symbol} companyName={view.companyName} />}
           {!isStockDash && loading && !isStock && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:80, gap:12 }}><Spinner /><div style={{ fontSize:13, color:'#9ca3af' }}>Loading news...</div></div>}
           {!isStockDash && !showFetching && !loading && !displayArticles.length && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:80, gap:12 }}><div style={{ fontSize:44 }}>📭</div><div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news found</div></div>}
           {!isStockDash && !showFetching && displayArticles.map(a=><MobileNewsCard key={a.id} a={a} price={feedPrices[a.symbol]} watchlist={watchlist} setView={setView} onWatchlistClick={handleWatchlistClick} />)}
@@ -628,7 +632,7 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
             onBack={() => setView({ type:'stock-news', symbol:view.symbol, companyName:view.companyName })}
           />
         )}
-        {!isStockDash && showFetching && <FetchingScreen symbol={view.symbol} />}
+        {!isStockDash && showFetching && <FetchingScreen symbol={view.symbol} companyName={view.companyName} />}
         {!isStockDash && loading && !isStock && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}><Spinner /><div style={{ fontSize:13, color:'#9ca3af' }}>Loading news...</div></div>}
         {!isStockDash && !showFetching && !loading && !displayArticles.length && <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:60, gap:12 }}><div style={{ fontSize:44 }}>📭</div><div style={{ fontSize:16, fontWeight:600, color:'#6b7280' }}>No news found</div></div>}
         {!isStockDash && !showFetching && displayArticles.map(a=><NewsCard key={a.id} a={a} price={feedPrices[a.symbol]} onWatchlist={onWatchlist} watchlist={watchlist} setView={setView} onWatchlistClick={handleWatchlistClick} />)}
