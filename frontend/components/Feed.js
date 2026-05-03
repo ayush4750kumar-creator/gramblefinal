@@ -219,25 +219,32 @@ function FetchingScreen({ symbol }) {
   );
 }
 
-function MobileHeader({ feedTitle, articleCount, isStockNews, view, setView, watchlist, onWatchlistClick, loading }) {
-  const inWatchlist = isStockNews && watchlist?.find(w => w.symbol === view.symbol);
+function MobileHeader({ feedTitle, articleCount, isStockNews, isStockDash, view, setView, watchlist, onWatchlistClick, loading }) {
+  const inWatchlist = (isStockNews || isStockDash) && watchlist?.find(w => w.symbol === view.symbol);
   return (
     <div style={{ background:'#fff', padding:'14px 16px 12px', borderBottom:'1px solid #f0f0f0', position:'sticky', top:0, zIndex:10 }}>
       <div style={{ display:'flex', alignItems:'center', gap:10 }}>
         {view !== 'feed' && <button onClick={()=>setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#374151', padding:0, lineHeight:1 }}>←</button>}
-        <div style={{ fontSize:22, fontWeight:800, color:'#111', letterSpacing:'-0.3px' }}>{feedTitle}</div>
-        {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:4 }}>{articleCount} articles</span>}
-        {isStockNews && (
+        {/* Only show title/count when NOT on a stock page */}
+        {!isStockNews && !isStockDash && (
+          <>
+            <div style={{ fontSize:22, fontWeight:800, color:'#111', letterSpacing:'-0.3px' }}>{feedTitle}</div>
+            {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:4 }}>{articleCount} articles</span>}
+          </>
+        )}
+        {(isStockNews || isStockDash) && (
           <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
             <button onClick={()=>onWatchlistClick(view.symbol)} style={{ padding:'7px 12px', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', background: inWatchlist?'#2563eb':'#f3f4f6', color: inWatchlist?'#fff':'#374151', border:'none' }}>
               {inWatchlist?'✓ Watched':'+ Watch'}
             </button>
-            <button
-              onClick={()=>setView({ type:'stock', symbol:view.symbol, companyName:view.companyName, sentiment:view.sentiment })}
-              style={{ padding:'7px 12px', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', background:'#2563eb', color:'#fff', border:'none' }}
-            >
-              Stock Analysis →
-            </button>
+            {isStockNews && (
+              <button
+                onClick={()=>setView({ type:'stock', symbol:view.symbol, companyName:view.companyName, sentiment:view.sentiment })}
+                style={{ padding:'7px 12px', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', background:'#2563eb', color:'#fff', border:'none' }}
+              >
+                Stock Analysis →
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -465,7 +472,17 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
     return (
       <div style={{ background:'#f3f4f6', minHeight:'100vh', display:'flex', flexDirection:'column' }}>
         {toast && <WatchlistToast symbol={toast} />}
-        <MobileHeader feedTitle={feedTitle} articleCount={displayArticles.length} isStockNews={isStockNews} view={view} setView={setView} watchlist={watchlist} onWatchlistClick={handleWatchlistClick} loading={loading} />
+        <MobileHeader
+          feedTitle={feedTitle}
+          articleCount={displayArticles.length}
+          isStockNews={isStockNews}
+          isStockDash={isStockDash}
+          view={view}
+          setView={setView}
+          watchlist={watchlist}
+          onWatchlistClick={handleWatchlistClick}
+          loading={loading}
+        />
         {isExchange && (
           <div style={{ display:'flex', gap:8, padding:'10px 12px', overflowX:'auto', background:'#fff', borderBottom:'1px solid #f0f0f0' }}>
             {EXCHANGE_TABS.map(ex=><button key={ex.key} onClick={()=>setExchangeTab(ex.key)} style={{ padding:'6px 16px', borderRadius:20, fontSize:12, fontWeight:700, border:'none', background: exchangeTab===ex.key?ex.color:'#f3f4f6', color: exchangeTab===ex.key?'#fff':'#374151', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>{ex.label}</button>)}
@@ -497,12 +514,22 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   return (
     <main style={{ background:'#f3f4f6', borderRadius:12, padding:0, overflowY:'hidden', display:'flex', flexDirection:'column' }}>
       {toast && <WatchlistToast symbol={toast} />}
+
+      {/* ── Top bar ── */}
       <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0, background:'#fff', borderRadius:'12px 12px 0 0' }}>
         {view !== 'feed' && (
           <button onClick={()=>setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>
         )}
-        <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>{feedTitle}</div>
-        {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>{displayArticles.length} articles</span>}
+
+        {/* Only show title + count when NOT on a stock page */}
+        {!isStock && (
+          <>
+            <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>{feedTitle}</div>
+            {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:8 }}>{displayArticles.length} articles</span>}
+          </>
+        )}
+
+        {/* Stock news view: only watchlist + analysis buttons */}
         {isStockNews && (
           <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
             <button
@@ -519,6 +546,8 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
             </button>
           </div>
         )}
+
+        {/* Stock dashboard view: only watchlist button */}
         {isStockDash && (
           <button
             onClick={()=>handleWatchlistClick(view.symbol)}
