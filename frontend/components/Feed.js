@@ -221,19 +221,37 @@ function FetchingScreen({ symbol }) {
 
 function MobileHeader({ feedTitle, articleCount, isStockNews, isStockDash, view, setView, watchlist, onWatchlistClick, loading }) {
   const inWatchlist = (isStockNews || isStockDash) && watchlist?.find(w => w.symbol === view.symbol);
+  const hasFullName = (isStockNews || isStockDash) && view.companyName && view.companyName !== view.symbol;
+
   return (
     <div style={{ background:'#fff', padding:'14px 16px 12px', borderBottom:'1px solid #f0f0f0', position:'sticky', top:0, zIndex:10 }}>
       <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-        {view !== 'feed' && <button onClick={()=>setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#374151', padding:0, lineHeight:1 }}>←</button>}
-        {/* Only show title/count when NOT on a stock page */}
+        {view !== 'feed' && (
+          <button onClick={()=>setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#374151', padding:0, lineHeight:1, flexShrink:0 }}>←</button>
+        )}
+
+        {/* Non-stock pages: show feed title + count */}
         {!isStockNews && !isStockDash && (
           <>
             <div style={{ fontSize:22, fontWeight:800, color:'#111', letterSpacing:'-0.3px' }}>{feedTitle}</div>
             {!loading && <span style={{ fontSize:12, color:'#9ca3af', marginLeft:4 }}>{articleCount} articles</span>}
           </>
         )}
+
+        {/* Stock pages: show full company name + ticker symbol */}
         {(isStockNews || isStockDash) && (
-          <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
+          <div style={{ display:'flex', flexDirection:'column', justifyContent:'center', flex:1, minWidth:0 }}>
+            <div style={{ fontSize:16, fontWeight:800, color:'#111', lineHeight:1.2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+              {hasFullName ? view.companyName : view.symbol}
+            </div>
+            {hasFullName && (
+              <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, fontFamily:'monospace' }}>{view.symbol}</div>
+            )}
+          </div>
+        )}
+
+        {(isStockNews || isStockDash) && (
+          <div style={{ display:'flex', gap:6, flexShrink:0 }}>
             <button onClick={()=>onWatchlistClick(view.symbol)} style={{ padding:'7px 12px', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', background: inWatchlist?'#2563eb':'#f3f4f6', color: inWatchlist?'#fff':'#374151', border:'none' }}>
               {inWatchlist?'✓ Watched':'+ Watch'}
             </button>
@@ -460,6 +478,9 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
   const showFetching    = isStock && (loading || (fetching && !displayArticles.length));
   const newPillCount    = isExchange ? 0 : newArticles.length;
 
+  // Whether the view has a proper full company name (different from the ticker)
+  const hasFullName = isStock && view.companyName && view.companyName !== view.symbol;
+
   const loaderDiv = !isStock && !isExchange ? (
     <div ref={loaderRef} style={{ textAlign:'center', padding:'20px 0', color:'#9ca3af', fontSize:13 }}>
       {loadingMore && <Spinner size={24} />}
@@ -518,10 +539,10 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
       {/* ── Top bar ── */}
       <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 12px 14px', borderBottom:'1px solid #e5e7eb', flexShrink:0, background:'#fff', borderRadius:'12px 12px 0 0' }}>
         {view !== 'feed' && (
-          <button onClick={()=>setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0 }}>←</button>
+          <button onClick={()=>setView('feed')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6b7280', padding:0, flexShrink:0 }}>←</button>
         )}
 
-        {/* Only show title + count when NOT on a stock page */}
+        {/* Non-stock pages: show feed title + article count */}
         {!isStock && (
           <>
             <div style={{ fontSize:20, fontWeight:700, color:'#111' }}>{feedTitle}</div>
@@ -529,7 +550,21 @@ export default function Feed({ user, view, setView, onWatchlist, watchlist }) {
           </>
         )}
 
-        {/* Stock news view: only watchlist + analysis buttons */}
+        {/* Stock pages: show full company name + ticker below it */}
+        {isStock && (
+          <div style={{ display:'flex', flexDirection:'column', justifyContent:'center' }}>
+            <div style={{ fontSize:19, fontWeight:800, color:'#111', lineHeight:1.2 }}>
+              {hasFullName ? view.companyName : view.symbol}
+            </div>
+            {hasFullName && (
+              <div style={{ fontSize:12, color:'#9ca3af', fontWeight:600, fontFamily:'monospace', marginTop:1 }}>
+                {view.symbol}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Stock news view: watchlist + analysis buttons */}
         {isStockNews && (
           <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
             <button
