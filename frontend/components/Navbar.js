@@ -30,6 +30,7 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
   }, []);
 
   useEffect(() => {
+    if (!query.trim()) return;
     const timer = setTimeout(async () => {
       try {
         const res  = await fetch(`${API}/api/search/suggest?q=${encodeURIComponent(query)}`);
@@ -58,9 +59,9 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
     }
   };
 
-  // ── FIXED: opens news feed first, not dashboard ──
+  // ── Clicking a stock row → opens NEWS FEED first ──
   const handleRowClick = (stock) => {
-    setView({ type: 'stock', symbol: stock.symbol, companyName: stock.name, exchange: stock.exchange });
+    setView({ type: 'stock-news', symbol: stock.symbol, companyName: stock.name, exchange: stock.exchange });
     setQuery('');
     setShowSuggestions(false);
   };
@@ -73,16 +74,12 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
 
   return (
     <>
-      <header style={{
-        background: '#fff', borderBottom: '1px solid #e5e7eb',
-        display: 'flex', alignItems: 'center',
-        padding: '0 20px', height: 58, gap: 12,
-        position: 'sticky', top: 0, zIndex: 100,
-      }}>
+      <header style={{ background:'#fff', borderBottom:'1px solid #e5e7eb', display:'flex', alignItems:'center', padding:'0 20px', height:58, gap:12, position:'sticky', top:0, zIndex:100 }}>
         <button onClick={onLogoClick} style={{ background:'none', border:'none', cursor:'pointer', padding:0, fontSize:22, fontWeight:800, color:'#111', letterSpacing:'-0.5px', flexShrink:0 }}>
           gramble<span style={{ color:'#3b82f6' }}>.in</span>
         </button>
 
+        {/* Search bar */}
         <div ref={searchRef} style={{ position:'relative', flex:1, maxWidth:460 }}>
           <input
             type="text"
@@ -92,27 +89,17 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
             onFocus={handleFocus}
             onKeyDown={e => {
               if (e.key === 'Enter' && query.trim()) {
-                setView({ type: 'stock', symbol: query.trim().toUpperCase() });
+                setView({ type: 'stock-news', symbol: query.trim().toUpperCase() });
                 setQuery('');
                 setShowSuggestions(false);
               }
             }}
-            style={{
-              width: '100%', background: '#f9fafb',
-              border: '1px solid #e5e7eb', borderRadius: 8,
-              padding: '8px 14px', color: '#111', fontSize: 14,
-              outline: 'none', boxSizing: 'border-box',
-            }}
+            style={{ width:'100%', background:'#f9fafb', border:'1px solid #e5e7eb', borderRadius:8, padding:'8px 14px', color:'#111', fontSize:14, outline:'none', boxSizing:'border-box' }}
           />
 
           {showSuggestions && suggestions.length > 0 && (
-            <div style={{
-              position: 'absolute', top: '110%', left: 0, right: 0,
-              background: '#fff', border: '1px solid #e5e7eb',
-              borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-              zIndex: 200, overflow: 'hidden', maxHeight: 420, overflowY: 'auto',
-            }}>
-              <div style={{ padding: '8px 12px 4px', fontSize: 11, color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            <div style={{ position:'absolute', top:'110%', left:0, right:0, background:'#fff', border:'1px solid #e5e7eb', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', zIndex:200, overflow:'hidden', maxHeight:420, overflowY:'auto' }}>
+              <div style={{ padding:'8px 12px 4px', fontSize:11, color:'#9ca3af', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
                 {query ? 'Matches' : '🔥 Popular Stocks'}
               </div>
 
@@ -126,12 +113,7 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
                   <div
                     key={s.symbol}
                     onClick={() => handleRowClick(s)}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '10px 14px', cursor: 'pointer',
-                      borderTop: '1px solid #f3f4f6',
-                      transition: 'background 0.1s',
-                    }}
+                    style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', cursor:'pointer', borderTop:'1px solid #f3f4f6', transition:'background 0.1s' }}
                     onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
                     onMouseLeave={e => e.currentTarget.style.background = '#fff'}
                   >
@@ -142,7 +124,7 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
                       <div>
                         <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                           <span style={{ fontWeight:700, fontSize:13, color:'#111' }}>{s.symbol}</span>
-                          <span style={{ fontSize:9, fontWeight:700, color: exColor, background:`${exColor}18`, borderRadius:4, padding:'1px 5px' }}>{s.exchange}</span>
+                          <span style={{ fontSize:9, fontWeight:700, color:exColor, background:`${exColor}18`, borderRadius:4, padding:'1px 5px' }}>{s.exchange}</span>
                         </div>
                         <div style={{ fontSize:11, color:'#6b7280' }}>{s.name}</div>
                       </div>
@@ -159,18 +141,13 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
                       ) : (
                         <span style={{ fontSize:11, color:'#c4c4c4', fontFamily:'monospace' }}>—</span>
                       )}
+                      {/* + Watch button — only adds to watchlist, does NOT navigate */}
                       <button
                         onClick={e => {
                           e.stopPropagation();
                           if (onWatchlist) onWatchlist(s);
                         }}
-                        style={{
-                          fontSize: 11,
-                          background: inWatchlist ? '#dcfce7' : '#eff6ff',
-                          color:      inWatchlist ? '#16a34a' : '#2563eb',
-                          border: 'none', borderRadius: 6,
-                          padding: '4px 10px', cursor: 'pointer', fontWeight: 700,
-                        }}
+                        style={{ fontSize:11, background: inWatchlist ? '#dcfce7' : '#eff6ff', color: inWatchlist ? '#16a34a' : '#2563eb', border:'none', borderRadius:6, padding:'4px 10px', cursor:'pointer', fontWeight:700 }}
                       >
                         {inWatchlist ? '✓ Watching' : '+ Watch'}
                       </button>
@@ -193,9 +170,7 @@ export default function Navbar({ user, token, onLogin, onLogout, onLogoClick, se
             <div style={{ width:32, height:32, borderRadius:'50%', background:'#2563eb', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700 }}>
               {(user.display_name || user.email || 'U')[0].toUpperCase()}
             </div>
-            <button onClick={handleLogout} style={{ background:'none', border:'1px solid #e5e7eb', color:'#6b7280', padding:'5px 12px', borderRadius:8, fontSize:12, cursor:'pointer' }}>
-              Logout
-            </button>
+            <button onClick={handleLogout} style={{ background:'none', border:'1px solid #e5e7eb', color:'#6b7280', padding:'5px 12px', borderRadius:8, fontSize:12, cursor:'pointer' }}>Logout</button>
           </div>
         ) : (
           <button onClick={() => setShowLogin(true)} style={{ marginLeft:'auto', background:'#fff', border:'1px solid #e5e7eb', color:'#374151', padding:'7px 18px', borderRadius:8, fontSize:14, cursor:'pointer', fontWeight:500 }}>
