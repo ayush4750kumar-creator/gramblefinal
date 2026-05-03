@@ -417,7 +417,6 @@ function AllNewsTab({ symbol }) {
               textDecoration:'none',
             }}
           >
-            {/* Meta row: source · time — with optional sentiment label */}
             <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:6,flexWrap:'wrap'}}>
               {sent && (
                 <>
@@ -429,8 +428,6 @@ function AllNewsTab({ symbol }) {
               <span style={{fontSize:11,color:'#d1d5db'}}>·</span>
               <span style={{fontSize:12,color:'#9ca3af'}}>{when}</span>
             </div>
-
-            {/* Bold headline */}
             <div style={{fontSize:14,fontWeight:700,color:'#111',lineHeight:1.5}}>
               {title}
             </div>
@@ -480,7 +477,6 @@ export default function StockAnalysis({ symbol, companyName, sentiment, watchlis
   const pct       = diff!=null ? (diff/prevClose)*100 : null;
   const isUp      = diff!=null ? diff>=0 : true;
   const ss        = SENT[sentiment?.toLowerCase()] ?? SENT.neutral;
-  const inWL      = watchlist?.some(w=>w.symbol===symbol);
 
   const mainTabSt = active => ({
     padding:'10px 18px', fontSize:13, cursor:'pointer', border:'none',
@@ -493,23 +489,12 @@ export default function StockAnalysis({ symbol, companyName, sentiment, watchlis
   return (
     <div style={{fontFamily:'inherit',paddingBottom:'2rem'}}>
 
+      {/* ← Back to news button only — company name/watchlist header removed */}
       <button onClick={onBack} style={{display:'inline-flex',alignItems:'center',gap:4,background:'none',border:'none',cursor:'pointer',fontSize:13,color:'#6b7280',padding:'0 0 12px',fontFamily:'inherit'}}>
         ← Back to news
       </button>
 
-      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:6}}>
-        <div>
-          <div style={{fontSize:12,color:'#9ca3af',fontWeight:500,marginBottom:2}}>{symbol} · NSE/BSE</div>
-          <div style={{fontSize:19,fontWeight:700,color:'#111'}}>{companyName||symbol}</div>
-        </div>
-        <button
-          onClick={()=>onWatchlistClick?.(symbol)}
-          style={{padding:'7px 16px',borderRadius:8,fontSize:13,cursor:'pointer',fontFamily:'inherit',fontWeight:600,background:inWL?'#2563eb':'#f3f4f6',color:inWL?'#fff':'#374151',border:'none',marginTop:4,flexShrink:0}}
-        >
-          {inWL?'✓ Watchlisted':'+ Watchlist'}
-        </button>
-      </div>
-
+      {/* Price block */}
       <div style={{marginBottom:12}}>
         {loadP ? (
           <div style={{display:'flex',alignItems:'center',gap:8,height:44}}>
@@ -532,11 +517,13 @@ export default function StockAnalysis({ symbol, companyName, sentiment, watchlis
         )}
       </div>
 
+      {/* Chart */}
       <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,padding:'10px 10px 0',marginBottom:0}}>
         <MainChart series={series} prevClose={prevClose} isUp={isUp} range={range} setRange={setRange}/>
         <VolumeBars series={series} isUp={isUp}/>
       </div>
 
+      {/* Tabs */}
       <div style={{display:'flex',borderBottom:'1px solid #e5e7eb',marginTop:16,marginBottom:16}}>
         <button onClick={()=>setTab('performance')} style={mainTabSt(tab==='performance')}>Performance</button>
         <button onClick={()=>setTab('graphs')}      style={mainTabSt(tab==='graphs')}>Stats Graphs</button>
